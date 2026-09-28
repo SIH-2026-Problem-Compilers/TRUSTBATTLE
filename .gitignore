@@ -1,0 +1,33 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.ipynb_checkpoints/
+.pytest_cache/
+
+# Data & models (keep repo light; share large files via drive/release)
+data/raw/*
+data/synthetic/*
+data/attacks/*
+data/processed/*
+models/**/*.pkl
+!data/**/.gitkeep
+!models/**/.gitkeep
+
+# Node (frontend)
+node_modules/
+frontend/dist/
+frontend/.vite/
+
+# Env & secrets
+.env
+.env.*
+*.local
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/

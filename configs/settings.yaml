@@ -1,0 +1,54 @@
+# TRUSTBATTLE — Shared Configuration
+# All modules read tunable values from here. Copy to configs/local.yaml for personal overrides.
+
+project:
+  name: TRUSTBATTLE
+  schema_version: "1.0"
+
+simulation:
+  uav_id: uav1
+  duration_s: 600
+  base_frequency_hz: 10
+  random_seed: 42
+
+sensors:
+  gnss:
+    noise_std_m: 3.0
+    update_rate_hz: 10
+  imu:
+    accel_noise_std: 0.05
+    gyro_noise_std: 0.01
+    update_rate_hz: 100
+  visual:
+    update_rate_hz: 5
+
+attacks:            # used by Member 4
+  gnss_spoof:
+    offset_start_m: 150
+    ramp_s: 30
+  replay:
+    delay_s: 12
+  network_anomaly:
+    packet_delay_spike_ms: 900
+    packet_loss_pct: 25
+
+trust_engine:       # used by Member 3 (initial weights — to be experimentally tuned)
+  weights:
+    physical_consistency: 0.30
+    temporal_consistency: 0.20
+    cross_sensor_agreement: 0.25
+    network_integrity: 0.15
+    historical_reliability: 0.10
+  decay:
+    drop_rate: 0.6      # how fast trust falls during anomaly
+    recovery_rate: 0.25 # how fast trust recovers after anomaly
+  thresholds:
+    green: 70
+    amber: 40
+
+fusion:
+  mode: trust_aware     # normal | trust_aware
+  min_sensor_weight: 0.05
+
+experiments:        # used by all (about_project.txt §19)
+  corruption_levels_pct: [0, 5, 10, 20, 30]

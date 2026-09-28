@@ -1,0 +1,982 @@
+AI-Driven Battlefield Information Integrity & Trust Assessment
+1. The Problem We Are Solving
+
+Modern military operations depend on many interconnected information sources such as UAVs, GNSS/INS, radar, cameras, ground sensors and communication systems to build a real-time picture of the battlefield.
+
+The problem is that information coming from a sensor cannot always be assumed to be trustworthy.
+
+Information can become unreliable because of:
+
+GNSS spoofing
+False-data injection
+Replay/stale data
+Communication/network anomalies
+Sensor malfunction
+Jamming/degraded signals
+Physical decoys/deception
+Conflicting observations from different sensors
+
+The dangerous part is that a manipulated measurement can sometimes look completely legitimate.
+
+For example:
+
+A UAV's GPS says:
+
+"I am at Location A."
+
+But its IMU, visual information and movement history indicate:
+
+"This position is physically inconsistent."
+
+The system therefore needs to answer:
+
+"Can we trust this particular observation right now?"
+
+rather than simply:
+
+"What did the sensor report?"
+
+2. Real-World Motivation
+
+This is not a hypothetical problem.
+
+The U.S. Army has an explicit program called Ensuring Sensor Data Security and Integrity, focused on protecting sensor data and maintaining its integrity throughout the data lifecycle.
+
+India's SANJAY Battlefield Surveillance System also integrates ground and aerial sensor inputs and processes them to confirm their veracity before creating a common surveillance picture.
+
+GNSS spoofing has also been demonstrated in real military conflicts, including the Russia–Ukraine war, where false navigation information has been used against UAVs.
+
+The U.S. Army has specifically discussed GPS spoofing producing incorrect position/timing information and has tested systems designed to detect GNSS jamming/spoofing.
+
+There are also documented battlefield uses of decoys and electronic deception where sensors can provide technically valid observations that nevertheless lead to an incorrect battlefield interpretation.
+
+Therefore, the broader problem is:
+
+How can a military system determine whether information received from a sensor or data source is trustworthy before allowing it to significantly influence the operational picture?
+
+3. Our Core Idea
+
+We are NOT trying to build another normal sensor-fusion system.
+
+We are proposing an additional Information Integrity Layer on top of sensor systems.
+
+Instead of:
+
+Sensor → Data → Fusion → Decision
+
+we want:
+
+Sensor → Data → Trust/Integrity Assessment → Fusion → Decision
+
+The system continuously evaluates each observation using multiple independent forms of evidence.
+
+4. Example
+
+Suppose a UAV has:
+
+GNSS
+
+Reports:
+
+Position = X
+
+IMU
+
+Reports:
+
+Movement does not support the GNSS trajectory.
+
+Camera/visual system
+
+Reports:
+
+Surrounding environment does not match the reported location.
+
+Network telemetry
+
+Shows:
+
+Abnormal timing/communication behaviour.
+
+Historical sensor reliability
+
+Shows:
+
+GNSS receiver has normally been reliable.
+
+Instead of simply saying:
+
+"GPS is hacked."
+
+our system says:
+
+OBSERVATION INTEGRITY ALERT
+
+Observation Trust: 28%
+
+Evidence:
+✓ Sensor historically reliable
+✗ GNSS/IMU disagreement
+✗ Trajectory inconsistency
+✗ Visual/location disagreement
+✗ Telemetry anomaly
+
+Assessment:
+Current observation is potentially unreliable.
+
+Possible causes:
+- GNSS spoofing
+- sensor malfunction
+- communication manipulation
+
+Action:
+Reduce influence of this observation
+and request independent verification.
+
+This is the core concept.
+
+5. Important Design Principle
+
+We will separate:
+
+SENSOR RELIABILITY
+
+How reliable has this sensor/source historically been?
+
+from:
+
+OBSERVATION TRUST
+
+How trustworthy is this particular measurement right now?
+
+Example:
+
+Drone GPS
+
+Historical reliability = 94%
+
+Current observation:
+GPS/IMU conflict
+GPS/visual conflict
+Telemetry anomaly
+
+Current observation trust = 31%
+
+A normally reliable sensor can temporarily produce an unreliable observation.
+
+This distinction will be central to our system.
+
+6. Proposed System Architecture
+                    ┌──────────────────────────┐
+                    │     Battlefield Sources  │
+                    │                          │
+                    │ GNSS │ IMU │ Camera │ IoT│
+                    └────────────┬─────────────┘
+                                 │
+                                 ▼
+                       ┌──────────────────┐
+                       │ Feature Extraction│
+                       └─────────┬────────┘
+                                 │
+              ┌──────────────────┼──────────────────┐
+              ▼                  ▼                  ▼
+       Physics/State       Temporal ML        Cyber/Network
+        Consistency         Anomaly              Anomaly
+              │                  │                  │
+              └──────────────────┼──────────────────┘
+                                 ▼
+                       ┌──────────────────┐
+                       │ Evidence Engine  │
+                       └─────────┬────────┘
+                                 │
+                                 ▼
+                    ┌────────────────────────┐
+                    │ Observation Trust Model│
+                    └───────────┬────────────┘
+                                │
+                    ┌───────────┴───────────┐
+                    ▼                       ▼
+               TRUSTWORTHY              SUSPICIOUS
+                    │                       │
+                    ▼                       ▼
+              Robust Fusion          Verification Alert
+                    │                       │
+                    └───────────┬───────────┘
+                                ▼
+                    ┌──────────────────────┐
+                    │ Explainable Dashboard│
+                    └──────────────────────┘
+7. Technical Approach
+
+We should NOT start with one huge deep-learning model.
+
+We will use a hybrid AI + physics + cybersecurity approach.
+
+Layer 1 — Physics/Consistency Analysis
+
+We calculate relationships between sensor values.
+
+Examples:
+
+position residual
+velocity residual
+acceleration consistency
+heading consistency
+trajectory deviation
+timestamp consistency
+GNSS vs IMU disagreement
+sensor-to-sensor disagreement
+
+Example:
+
+GNSS says:
+velocity = 120 km/h
+
+IMU says:
+velocity = 55 km/h
+
+Historical maximum:
+80 km/h
+
+This becomes an anomaly feature.
+
+This layer gives us interpretable evidence.
+
+8. Layer 2 — ML Anomaly Detection
+
+We feed the extracted features into anomaly-detection models.
+
+First models to test:
+Isolation Forest
+One-Class SVM
+Random Forest/XGBoost where labelled data is available
+Autoencoder as a later experiment
+
+For the MVP, start with:
+
+Isolation Forest
+
+because it works well for unsupervised anomaly detection and doesn't require a huge labelled military dataset.
+
+The model should output something like:
+
+Anomaly Score = 0.87
+9. Layer 3 — Temporal Analysis
+
+Sensor data is a time series.
+
+For example:
+
+t1 → position
+t2 → position
+t3 → position
+t4 → position
+t5 → position
+
+A spoofing/replay/manipulation event may produce an abnormal temporal pattern.
+
+Initially we can use:
+
+rolling statistics
+velocity/acceleration changes
+time differences
+sequence features
+
+Later we can experiment with:
+
+LSTM/GRU
+temporal autoencoder
+lightweight Transformer
+
+Do NOT start with the Transformer.
+
+First create a working baseline.
+
+10. Layer 4 — Cyber/Network Analysis
+
+Our cybersecurity member will generate/monitor simulated telemetry behaviour.
+
+Features can include:
+
+packet rate
+packet inter-arrival time
+packet loss
+packet delay
+sequence number behaviour
+timestamp behaviour
+source ID
+communication frequency
+
+The ML model detects unusual communication behaviour.
+
+For example:
+
+Normal:
+
+packet interval:
+20 ms
+21 ms
+19 ms
+20 ms
+21 ms
+
+Possible anomaly:
+
+20 ms
+21 ms
+19 ms
+950 ms
+20 ms
+4 ms
+21 ms
+
+This doesn't automatically mean "attack".
+
+It becomes evidence contributing to the integrity assessment.
+
+11. Layer 5 — Cross-Sensor Consistency
+
+This is one of the most important components.
+
+We compare independent sources.
+
+Example:
+
+GNSS → Position A
+IMU  → Position B
+Camera → Environment C
+
+Calculate how consistent they are.
+
+Output:
+
+Cross-sensor consistency = LOW
+
+Again, we don't immediately label it an attack.
+
+It simply tells the trust engine:
+
+"Something about this observation is inconsistent."
+
+12. Layer 6 — Observation Trust Engine
+
+This is where everything comes together.
+
+Input:
+
+Physical consistency
+Temporal consistency
+Cross-sensor agreement
+Network anomaly
+Historical sensor reliability
+Signal quality
+
+Output:
+
+Observation Trust = 0–100
+
+For example:
+
+Historical reliability       0.94
+Physical consistency         0.25
+Temporal consistency         0.42
+Cross-sensor agreement       0.18
+Network integrity            0.31
+
+                  ↓
+
+Observation Trust = 0.29
+
+The exact weighting should be learned/experimentally validated rather than arbitrarily chosen.
+
+We can initially use a weighted model and later train a supervised/ensemble model to learn the relationship.
+
+13. Why the Trust Engine Should Be Dynamic
+
+Trust should not be permanent.
+
+Example:
+
+Normal:
+
+Trust = 95%
+
+Spoofing begins:
+
+95%
+ ↓
+81%
+ ↓
+63%
+ ↓
+41%
+ ↓
+24%
+
+System raises:
+
+⚠️ INFORMATION INTEGRITY ALERT
+
+After the anomaly disappears:
+
+24%
+ ↓
+38%
+ ↓
+61%
+ ↓
+79%
+ ↓
+92%
+
+The system gradually restores confidence.
+
+This prevents permanently blacklisting a sensor after one anomaly.
+
+14. Robust Fusion
+
+Now we compare two systems.
+
+Normal fusion
+
+All sensors receive approximately equal/normal influence.
+
+GNSS = 33%
+IMU = 33%
+Visual = 33%
+Trust-aware fusion
+
+Influence changes according to current observation trust.
+
+GNSS = 10%
+IMU = 45%
+Visual = 45%
+
+These numbers are only examples.
+
+The actual fusion weights will come from our model.
+
+The goal is:
+
+When one information source becomes unreliable, the system should reduce its influence instead of allowing the corrupted information to dominate the final estimate.
+
+15. Explainability
+
+This is essential.
+
+We should NOT show only:
+
+"Anomaly = 96%"
+
+Instead:
+
+⚠ INFORMATION INTEGRITY ALERT
+
+Observation Trust: 28%
+
+Evidence:
+
+✓ Historical reliability: HIGH
+✗ GNSS/IMU disagreement
+✗ Trajectory inconsistency
+✗ Cross-sensor disagreement
+✗ Network timing anomaly
+
+Possible causes:
+• GNSS spoofing
+• sensor malfunction
+• communication manipulation
+
+Recommended action:
+Independent verification required.
+
+This makes the system useful to a human operator.
+
+16. Important: Don't claim the AI can prove an attack
+
+Our system should NOT say:
+
+"The sensor has been hacked."
+
+unless we have sufficient evidence.
+
+Instead:
+
+"The observation is inconsistent/unreliable, with evidence potentially consistent with spoofing, malfunction or communication manipulation."
+
+This is technically more correct.
+
+Our system is primarily an:
+
+Information Integrity / Trust Assessment System
+
+not an:
+
+Attack Attribution System
+17. First MVP — Keep It Focused
+
+For the first implementation, we should NOT try to simulate an entire battlefield.
+
+Primary scenario:
+UAV navigation/information integrity
+Sensors:
+GNSS
+IMU
+simulated visual/position estimate
+telemetry/network metadata
+Attack/failure scenarios:
+Normal operation
+GNSS spoofing
+Sensor malfunction
+Replay/stale data
+Network anomaly
+Conflicting sensor observations
+18. Data
+
+We don't need classified military data.
+
+We can use:
+
+Public datasets
+
+There are publicly available GNSS datasets containing clean, jammed and spoofed observations.
+
+We can also use UAV/GNSS spoofing datasets and simulation environments.
+
+Synthetic data
+
+We will generate our own controlled telemetry:
+
+timestamp
+sensor_id
+latitude
+longitude
+altitude
+velocity
+acceleration
+heading
+GNSS quality
+IMU measurements
+packet rate
+packet delay
+packet loss
+sequence number
+
+Then inject controlled anomalies.
+
+Example:
+
+Normal:
+GPS = realistic trajectory
+
+Spoof:
+GPS = manipulated trajectory
+
+IMU = unchanged
+
+Network = optional anomaly
+
+This lets us know the ground truth.
+
+19. Experiments
+
+We need actual experimental evaluation.
+
+Experiment 1
+
+Normal sensor data.
+
+Measure:
+
+false positives
+normal estimation accuracy
+Experiment 2
+
+5% corrupted observations.
+
+Experiment 3
+
+10% corrupted observations.
+
+Experiment 4
+
+20% corrupted observations.
+
+Experiment 5
+
+30% corrupted observations.
+
+For each experiment compare:
+
+Baseline
+
+Normal sensor fusion.
+
+Ours
+
+Trust-aware fusion.
+
+20. Metrics
+Anomaly detection
+Precision
+Recall
+F1-score
+False Positive Rate
+Detection latency
+State estimation
+Position error
+Velocity error
+trajectory error
+Resilience
+
+Most important:
+
+How much does the final system degrade as the percentage of corrupted information increases?
+
+For example:
+
+Corruption    Normal Fusion    Trust-Aware Fusion
+
+0%            X error          Y error
+10%           X error          Y error
+20%           X error          Y error
+30%           X error          Y error
+
+We will generate the actual numbers experimentally.
+
+21. Team Division
+AI/ML Developer 1
+Physical/Navigation Intelligence
+
+Responsibilities:
+
+GNSS/IMU processing
+physics features
+trajectory analysis
+anomaly detection
+spoofing detection
+AI/ML Developer 2
+Cyber/Temporal Intelligence
+
+Responsibilities:
+
+telemetry analysis
+packet behaviour
+timing features
+replay detection
+network anomaly detection
+AI/ML Developer 3
+Trust + Fusion Intelligence
+
+Responsibilities:
+
+observation trust model
+evidence aggregation
+dynamic trust
+robust sensor fusion
+confidence calibration
+evaluation
+Cybersecurity Member
+Adversarial Scenario Generation
+
+Responsibilities:
+
+understand GNSS spoofing
+replay scenarios
+manipulated telemetry
+network anomalies
+sensor compromise simulations
+threat modelling
+
+Everything should be done in our controlled simulation/lab environment, not against real systems.
+
+Software Developer
+Platform/Dashboard
+
+Responsibilities:
+
+backend API
+real-time data streaming
+AI integration
+database
+dashboard
+map visualization
+alert system
+
+Suggested stack:
+
+Frontend:
+React + Vite
+
+Backend:
+Python FastAPI
+
+AI:
+Python
+scikit-learn
+PyTorch
+
+Data:
+Pandas / NumPy
+
+Database:
+PostgreSQL or MongoDB
+
+Real-time:
+WebSocket
+
+Visualization:
+Mapbox/Leaflet
+Plotly/Recharts
+22. Final Demo
+
+The demo should tell a story.
+
+Step 1 — Normal
+GNSS      95%
+IMU       94%
+Visual    92%
+
+Observation Trust = 94%
+
+🟢 NORMAL
+Step 2 — Introduce simulated spoofing
+
+GNSS begins reporting manipulated position.
+
+GNSS      ↓ 28%
+IMU       94%
+Visual    91%
+
+Observation Trust = 31%
+
+🔴 INFORMATION INTEGRITY ALERT
+Step 3 — Explain why
+GPS/IMU disagreement
+GPS/visual disagreement
+Trajectory anomaly
+Telemetry anomaly
+Step 4 — Reduce unreliable source influence
+GNSS influence ↓
+IMU influence ↑
+Visual influence ↑
+Step 5 — Continue tracking using reliable evidence
+
+System maintains a better estimate than normal fusion.
+
+Step 6 — Recovery
+
+Once GNSS becomes consistent again:
+
+Trust:
+31%
+ ↓
+48%
+ ↓
+67%
+ ↓
+85%
+ ↓
+94%
+
+This demonstrates dynamic trust recovery.
+
+23. What makes our project different from a simple cybersecurity project?
+
+We are NOT simply detecting:
+
+"There is a cyberattack."
+
+And we are NOT simply doing:
+
+"Sensor fusion."
+
+Our proposed system sits between the two:
+
+              SENSOR DATA
+                   ↓
+         ┌─────────────────┐
+         │ INFORMATION     │
+         │ INTEGRITY LAYER │
+         └────────┬────────┘
+                  ↓
+         Is this observation
+              trustworthy?
+                  ↓
+       ┌──────────┴──────────┐
+       ↓                     ↓
+    TRUSTED              SUSPICIOUS
+       ↓                     ↓
+    Fusion             Verification
+
+The central output is:
+
+How much should the system trust this information right now, and why?
+24. What We Should NOT Claim
+
+We need to be honest in the presentation.
+
+Don't claim:
+
+❌ "The Indian Army's sensors are being hacked."
+
+❌ "SANJAY cannot detect these attacks."
+
+❌ "Nobody has solved this problem."
+
+❌ "Our trust-based fusion is completely novel."
+
+❌ "Our AI can always identify attackers."
+
+Instead say:
+
+✅ "Sensor-information integrity is a documented military requirement."
+
+✅ "GNSS spoofing, jamming and battlefield deception have been demonstrated in real military contexts."
+
+✅ "Existing systems and research address portions of this problem."
+
+✅ "Our project investigates an explainable observation-level information-integrity layer combining physical, temporal, cyber and cross-sensor evidence."
+
+25. Research Hypothesis
+
+We can formally test:
+
+A multi-evidence observation-integrity model combining physical consistency, temporal behaviour, communication characteristics, historical reliability and cross-sensor agreement can identify unreliable sensor observations and reduce the impact of corrupted information on situational estimation compared with conventional sensor fusion.
+
+This gives us an actual research question rather than just a product demo.
+
+26. Final Project Definition
+Project Name
+TRUSTBATTLE
+Technical Name
+
+AI-Driven Battlefield Information Integrity & Trust Assessment Engine
+
+One-line pitch
+
+Don't just ask what the battlefield sensors are reporting—ask whether the information they are reporting can be trusted.
+
+Problem
+
+Battlefield information can become unreliable through spoofing, manipulation, malfunction, deception, replay and conflicting observations.
+
+Solution
+
+An AI-assisted information-integrity layer that evaluates each observation using physical, temporal, cyber, historical and cross-sensor evidence, dynamically determines its trustworthiness, reduces the influence of suspicious information during fusion, and explains the reasons to a human operator.
+
+First prototype
+
+GNSS + IMU + telemetry → anomaly detection → observation trust → trust-aware fusion → explainable dashboard
+
+Future expansion
+V1:
+GNSS + IMU + telemetry
+
+V2:
++ Camera/EO
+
+V3:
++ Radar simulation
+
+V4:
++ Multi-UAV/multi-agent environment
+
+V5:
++ Edge deployment
++ Hardware sensor integration
+27. Immediate Implementation Plan
+Phase 1 — Research & dataset
+Obtain public GNSS spoofing/jamming dataset
+Study its fields
+Create synthetic UAV telemetry
+Define normal/attack/failure labels
+Define evaluation metrics
+Phase 2 — Baseline
+
+Build:
+
+GNSS + IMU
+      ↓
+Normal Kalman/weighted fusion
+      ↓
+Position estimate
+
+This becomes our baseline.
+
+Phase 3 — Anomaly detection
+
+Implement:
+
+Feature extraction
+      ↓
+Isolation Forest
+      ↓
+Anomaly score
+Phase 4 — Cyber anomaly
+
+Add telemetry/network features and anomaly detection.
+
+Phase 5 — Trust engine
+
+Combine:
+
+physical evidence
++
+temporal evidence
++
+cyber evidence
++
+cross-sensor evidence
++
+historical reliability
+
+into observation trust.
+
+Phase 6 — Trust-aware fusion
+
+Compare:
+
+Normal fusion
+       VS
+Trust-aware fusion
+
+under increasing corruption.
+
+Phase 7 — Dashboard
+
+Build real-time:
+
+map
+sensor status
+trust score
+anomaly score
+evidence
+alerts
+trajectory comparison
+Phase 8 — Evaluation
+
+Produce graphs for:
+
+F1
+detection latency
+false positives
+position error
+robustness vs corruption percentage
+Phase 9 — Final demo
+
+Normal → attack injection → trust drops → suspicious source down-weighted → system continues with reliable sources → recovery.
+
+Final direction
+
+We should proceed with this idea.
+
+But the technical goal is not:
+
+"Build an AI that detects hacked sensors."
+
+The technical goal is:
+
+Build and experimentally evaluate an AI-assisted information-integrity layer that determines whether individual sensor observations remain trustworthy under spoofing, malfunction, replay, communication anomalies and cross-sensor conflict, and uses that assessment to make sensor fusion more resilient and explainable.
+
+That is the scope we should now document and implement.
