@@ -52,3 +52,30 @@ fusion:
 
 experiments:        # used by all (about_project.txt §19)
   corruption_levels_pct: [0, 5, 10, 20, 30]
+
+physical:           # Member 1 — physical & sensor analysis tunables
+  historical_max_speed_mps: 22.0   # §7 example; training re-learns it from clean data
+  min_course_speed_mps: 1.5        # below this speed the course-vs-heading check passes
+  smoothness_window: 21            # rolling window in samples (~2 s at 10 Hz)
+  severity_cap_multiplier: 4.0     # severity = 1 when residual >= limit * this factor
+  threshold_percentile: 0.999      # learned check limits = this percentile of clean data
+  checks:
+    max_position_residual_m: 25.0
+    max_velocity_residual_mps: 22.0
+    max_speed_excess_mps: 0.0
+    max_speed_change_gap_mps: 3.0
+    max_accel_inconsistency: 0.60
+    max_heading_residual_deg: 30.0
+    max_course_mismatch_deg: 45.0
+    max_speed_component_mismatch_mps: 3.0
+    max_smoothness_deg_s: 15.0
+    max_deviation_sigma: 6.0
+    min_gnss_quality: 0.30
+  anomaly:
+    n_estimators: 200
+    contamination: auto
+    random_state: 42
+    fpr_target: 0.01              # alert threshold calibrated on clean holdout
+  ocsvm:
+    nu: 0.02
+    kernel: rbf
