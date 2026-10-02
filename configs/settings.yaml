@@ -79,3 +79,25 @@ physical:           # Member 1 — physical & sensor analysis tunables
   ocsvm:
     nu: 0.02
     kernel: rbf
+
+temporal:           # Member 2 — temporal & telemetry/network tunables
+  anomaly:
+    n_estimators: 200
+    contamination: auto
+    random_state: 42
+    fpr_target: 0.01              # alert threshold calibrated on clean holdout
+  ocsvm:
+    nu: 0.02
+    kernel: rbf
+  threshold_percentile: 0.999     # learned check limits = this percentile of clean data
+  checks:
+    max_ts_rewind_s: 0.05         # clock rewind above this = stale/replayed stream
+    max_ts_gap_s: 0.5             # sampling gap limit
+    max_seq_expected_err: 2.0     # max deviation from expected next sequence number
+    max_seq_back: 0.0             # backward sequence steps allowed
+    max_speed_change_rate: 2.0    # per-second relative speed change
+    max_dt_ratio: 3.0             # dt vs rolling median dt
+  network:
+    iat_spike_ms: 200.0           # inter-arrival excess (ms) above rolling median*3
+    max_pkt_loss: 0.05            # packet loss fraction limit
+    max_rate_drop_frac: 0.4       # packet-rate drop below rolling median
