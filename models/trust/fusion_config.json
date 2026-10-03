@@ -1,0 +1,7 @@
+{
+  "schema_version": "1.0",
+  "mode": "trust_aware",
+  "min_sensor_weight": 0.05,
+  "model_type": "trust_proportional",
+  "learned_model": null
+}

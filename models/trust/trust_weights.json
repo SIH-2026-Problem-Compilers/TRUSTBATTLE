@@ -1,0 +1,63 @@
+{
+  "schema_version": "1.0",
+  "model_type": "weighted_linear",
+  "learned_model": null,
+  "weights": {
+    "physical_consistency": 0.3,
+    "temporal_consistency": 0.2,
+    "cross_sensor_agreement": 0.25,
+    "network_integrity": 0.15,
+    "historical_reliability": 0.1
+  },
+  "sensor_priors": {
+    "gnss": 0.94,
+    "imu": 0.94,
+    "visual": 0.92,
+    "net": 0.95
+  },
+  "sensor_attribution": {
+    "physical_consistency": {
+      "gnss": 1.0,
+      "imu": 0.05,
+      "visual": 0.15,
+      "net": 0.05
+    },
+    "anomaly_physical": {
+      "gnss": 0.5,
+      "imu": 0.025,
+      "visual": 0.075,
+      "net": 0.025
+    },
+    "temporal_consistency": {
+      "gnss": 0.3,
+      "imu": 0.6,
+      "visual": 0.6,
+      "net": 0.4
+    },
+    "anomaly_temporal": {
+      "gnss": 0.3,
+      "imu": 0.6,
+      "visual": 0.6,
+      "net": 0.4
+    },
+    "network_integrity": {
+      "gnss": 0.15,
+      "imu": 0.2,
+      "visual": 0.2,
+      "net": 1.0
+    },
+    "cross_sensor_agreement": {
+      "gnss": 0.9,
+      "imu": 0.3,
+      "visual": 0.9,
+      "net": 0.2
+    },
+    "historical_reliability": {
+      "gnss": 1.0,
+      "imu": 1.0,
+      "visual": 1.0,
+      "net": 1.0
+    }
+  },
+  "consistency_floor": 0.05
+}
