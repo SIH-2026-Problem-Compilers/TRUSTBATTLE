@@ -1,13 +1,13 @@
 {
-  "m2_pkt_rate": 106.22846322952475,
-  "m2_pkt_rate_ratio": 1.0621038981167747,
-  "m2_pkt_rate_deficit": 0.06311328000310419,
-  "m2_pkt_iat_ms": 23.03643077217462,
-  "m2_pkt_iat_ratio": 1.1611510177240718,
+  "m2_pkt_rate": 106.16994439418178,
+  "m2_pkt_rate_ratio": 1.0631176744685238,
+  "m2_pkt_rate_deficit": 0.0617616397258841,
+  "m2_pkt_iat_ms": 24.738732530578833,
+  "m2_pkt_iat_ratio": 1.237993610136025,
   "m2_pkt_iat_excess_ms": 0.0,
-  "m2_pkt_iat_std_ms": 1.4944906806344633,
+  "m2_pkt_iat_std_ms": 2.217268644156771,
   "m2_pkt_iat_burst": 0.0,
   "m2_pkt_loss": 0.0,
   "m2_pkt_loss_excess": 0.0,
-  "m2_net_disruption": 0.15778320000776047
+  "m2_net_disruption": 0.15440409931471025
 }

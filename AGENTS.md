@@ -1,7 +1,7 @@
 # AGENTS.md — TRUSTBATTLE
 
 > Context file for AI coding agents. Read this before touching any code.
-> Last updated: 2026-10-03 (M3 complete)
+> Last updated: 2026-10-03 (M3 + M4 complete — only M5 remains)
 
 ## 1. What this project is
 
@@ -82,22 +82,25 @@ tests/                  # cross-module tests (currently empty)
 | **M1 — physical module** | ✅ **Complete (code + eval)** | `member1_physical/src/` (loader, `extract_physical_features`, IsolationForest + OCSVM, `score_observation`, evaluate, fallback_data), 25 pytest tests, `docs/reports/m1_evaluation.md` + graphs, learned `models/physical/physical_limits.json` |
 | **M2 — temporal/network module** | ✅ **Complete (code + eval + DoD verified)** | `member2_temporal/src/` (temporal + network features, IF + OCSVM, `score_observation`, evaluate, fallback_data), 44/44 pytest green, `docs/reports/m2_evaluation.md` + graphs, `models/temporal/*.pkl` regenerated & reload-verified, replay + network-anomaly detection semantically verified via `score_observation` |
 | Integration adapters | 🟡 Partial | `integration/interfaces.py` + `pipeline.py` register **M1 + M2 + M3**; M5 endpoints are still stubs |
+| M1/M2 retrained on M4 data | ✅ Done (2026-10-03) | M1: P 0.99 / FPR 0.3%; M2: P 0.87 / FPR 4.1% — family coverage documented in `member4_cyber/docs/threat_model.md` §4; open model-side item: window-mean dilution on 50%-interleaved replay (M1/M2 lever) |
 | **M3 — trust engine + fusion** | ✅ **Complete (code + eval + DoD verified)** | `member3_trust/src/` (`compute_trust` weighted-geometric evidence model + per-sensor attribution + §13 dynamic trust + §16-worded alerts; `fuse` trust-aware/normal + Kalman baseline), artifacts `models/trust/*.json` seeded, 34/34 pytest green, demo story 92.3 → 21.1 RED → 92.2 (7/7 checks), `docs/reports/m3_evaluation.md` robustness table (trust-aware wins at 0/5/10/20/30% corruption) |
+| **M4 — cyber/data (datasets)** | ✅ **Complete (DoD verified)** | `data/synthetic/uav_normal_v1.parquet` (+3 support seeds, 24k rows) + 6 attack scenarios + mixed c05/c10/c20/c30 with exact §5 truth pairs — all pass `validate_dataset.py`; threat model `member4_cyber/docs/threat_model.md`; 15/15 pytest; reproducible from seed 42; per-sensor streams variant in `member4_cyber/scenarios/` (CR #3) |
+| M1/M2 retrained on M4 data | ✅ Done (2026-10-03) | M1: P 0.99 / FPR 0.3%; M2: P 0.87 / FPR 4.1%; family coverage in `member4_cyber/docs/threat_model.md` §4; open model-side item: window-mean dilution on 50%-interleaved replay (M1/M2 lever) |
 | Root pytest config | ✅ Done | `pytest.ini` (importlib mode) — M1+M2+M3 suites collect together; repo-wide `py -m pytest -q` → 103 passed |
 | Interim results | ✅ Done (fallback data) | M1: precision 1.000, FPR 0%, spoof/malfunction/conflict recall 1.000 (replay only 0.367 → M2's job). M2 combined: precision 1.000, recall 1.000, FPR 0 — catches replay, telemetry manip, network anomaly. M3: detection F1 0.80–1.00 / FPR ≤ 0.036 across the corruption sweep; trust-aware fusion error 2.7–6.7 m vs normal 3.0–9.2 m |
 | Presentations | ✅ Done | `*.pptx` at repo root |
 
-**Known interim caveat (important):** M1/M2 numbers come from each module's own `fallback_data.py` generator because **M4's real datasets don't exist yet**. Both loaders already accept the real `scenario_*.parquet` + `*_ground_truth.csv` pairs and will need an unchanged rerun of `train` + `evaluate` once M4 delivers.
+**Known interim caveat (IMPORTANT UPDATE):** the M1/M2 "fallback data" caveat is RESOLVED as of 2026-10-03 — both modules retrained and re-evaluated on M4's real datasets. M3's evaluation report still reflects its own stand-in scenarios (its corruption matcher needs the `scenario_mixed_cXX` naming — see remaining item 3).
 
 ## 6. ⬜ What is REMAINING (priority order)
 
-1. **M4 — member4_cyber (blocking everything):** empty except README. Need: synthetic UAV telemetry generator (`data/synthetic/uav_normal_v1.parquet`), attack scenario generators producing `data/attacks/scenario_*.parquet` + `scenario_*_ground_truth.csv` pairs (schema v1.0, labels 0–6), `member4_cyber/docs/threat_model.md`, tests. Attack parameters are pre-specified in `configs/settings.yaml` under `attacks:`.
-2. **Rerun M1 + M2 + M3 train/evaluate on real M4 data** (same commands, no code change expected — M3's `eval_scenarios.load_scenarios()` already prefers `data/attacks/` pairs) and regenerate `docs/reports/`.
-3. **M5 — backend:** `backend/app/` is empty. Need FastAPI app (`backend.app.main:app`) with contract endpoints: `GET /api/v1/trust/current`, `GET /api/v1/evidence/{observation_id}`, `GET /api/v1/alerts`, `WS /ws/live`; DB (SQLAlchemy, SQLite for dev / PostgreSQL for prod); wire M1+M2+M3 via `integration/`. M3 exposes `compute_trust(scores, history, observations=...)` + `fuse(...)` ready to call; the `observations` third arg feeds M3's derived cross-sensor evidence (§11) — pass per-sensor estimates when available.
-4. **M5 — frontend:** `frontend/` is empty. Need React + Vite dashboard: map (Leaflet), sensor status, trust scores, anomaly scores, evidence explanation, alerts, trajectory comparison (normal vs trust-aware fusion).
-5. **Experiments on real data (about_project.txt §19–20):** the M3 harness (`py -m member3_trust.src.evaluate`) already produces the corruption sweep + robustness table on fallback data; rerun on M4's scenarios.
-6. **End-to-end demo (`integration/run_demo.py`):** the §22 story is implemented per-module (`py -m member3_trust.src.demo` passes all 7 acceptance checks); wire the same flow through `integration/run_demo.py` for the final demo.
-7. **Root `tests/`:** cross-module/integration tests (currently empty; `pytest.ini` testpaths already include it).
+1. **M5 — backend:** `backend/app/` is empty. Need FastAPI app (`backend.app.main:app`) with contract endpoints: `GET /api/v1/trust/current`, `GET /api/v1/evidence/{observation_id}`, `GET /api/v1/alerts`, `WS /ws/live`; DB (SQLAlchemy, SQLite for dev / PostgreSQL for prod); wire M1+M2+M3 via `integration/`. M3 exposes `compute_trust(scores, history, observations=...)` + `fuse(...)` ready to call; the `observations` third arg feeds M3's derived cross-sensor evidence (§11) — pass per-sensor estimates when available.
+2. **M5 — frontend:** `frontend/` is empty. Need React + Vite dashboard: map (Leaflet), sensor status, trust scores, anomaly scores, evidence explanation, alerts, trajectory comparison (normal vs trust-aware fusion).
+3. **M3 evaluation rerun on M4 mixed datasets:** M3's `evaluate` matches corruption levels by filename (`corruption_XXpct`) but M4 ships `scenario_mixed_cXX` — update M3's matcher and rerun `py -m member3_trust.src.evaluate` for the §20 robustness table on M4 data.
+4. **Model-side tuning (M1/M2 ownership):** window-mean dilution on 50%-interleaved replay windows (quantified in `member4_cyber/docs/threat_model.md` §4) — candidates: top-k/per-row window scoring, quantile calibration.
+5. **End-to-end demo (`integration/run_demo.py`):** the §22 story is implemented per-module (`py -m member3_trust.src.demo` passes all 7 acceptance checks); wire the same flow through `integration/run_demo.py` for the final demo.
+6. **Root `tests/`:** cross-module/integration tests (currently empty; `pytest.ini` testpaths already include it).
+7. **CR review:** CHANGE_REQUESTS #1–#3 need team 👍 (config sections + schema clarification).
 
 ## 7. Commands (run from repo root)
 

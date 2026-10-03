@@ -1,15 +1,19 @@
 # M1 — Physical & Sensor Analysis: Evaluation Report
 
-*Generated:* 2026-09-29 17:03 UTC · *Module:* member1_physical (TASK 5) · *Window:* 50 rows (~5 s @ 10 Hz)
+*Generated:* 2026-10-03 11:41 UTC · *Module:* member1_physical (TASK 5) · *Window:* 50 rows (~5 s @ 10 Hz)
 
 ## 1. Data
 
-- fallback_normal: 4000 rows, 80 windows, attack share 0.0%, fs≈10 Hz
-- fallback_spoof: 4000 rows, 80 windows, attack share 50.0%, fs≈10 Hz
-- fallback_replay: 4000 rows, 80 windows, attack share 37.5%, fs≈10 Hz
-- fallback_malfunction: 4000 rows, 80 windows, attack share 45.0%, fs≈10 Hz
-- fallback_conflict: 4000 rows, 80 windows, attack share 40.0%, fs≈10 Hz
-- ground truth: data/attacks/ is empty — evaluation uses the M1 fallback generator
+- scenario_cross_sensor_conflict: 6000 rows, 120 windows, attack share 50.0%, fs≈10 Hz
+- scenario_gnss_spoof: 6000 rows, 120 windows, attack share 50.0%, fs≈10 Hz
+- scenario_mixed_c05: 6000 rows, 120 windows, attack share 5.0%, fs≈10 Hz
+- scenario_mixed_c10: 6000 rows, 120 windows, attack share 10.0%, fs≈10 Hz
+- scenario_mixed_c20: 6000 rows, 120 windows, attack share 20.0%, fs≈10 Hz
+- scenario_mixed_c30: 6000 rows, 120 windows, attack share 30.0%, fs≈10 Hz
+- scenario_network_anomaly: 6000 rows, 120 windows, attack share 50.0%, fs≈10 Hz
+- scenario_replay: 6000 rows, 120 windows, attack share 50.0%, fs≈10 Hz
+- scenario_sensor_malfunction: 6000 rows, 120 windows, attack share 50.0%, fs≈10 Hz
+- scenario_telemetry_manipulation: 6000 rows, 120 windows, attack share 50.0%, fs≈10 Hz
 
 ## 2. Detection metrics (window level)
 
@@ -17,24 +21,29 @@ Alert threshold calibrated on a clean holdout for FPR target 0.010 (data_schema.
 
 | Model | Threshold | Precision | Recall | F1 | FPR | TP | FP | TN | FN |
 |---|---|---|---|---|---|---|---|---|---|
-| IsolationForest (primary) | 0.676 | 1.000 | 0.862 | 0.926 | 0.000 | 119 | 0 | 262 | 19 |
-| One-Class SVM (baseline) | 1.000 | 0.979 | 0.993 | 0.986 | 0.011 | 137 | 3 | 259 | 1 |
+| IsolationForest (primary) | 0.650 | 0.990 | 0.466 | 0.634 | 0.003 | 204 | 2 | 760 | 234 |
+| One-Class SVM (baseline) | 0.718 | 0.978 | 0.822 | 0.893 | 0.010 | 360 | 8 | 754 | 78 |
 
 ## 3. Per-scenario detail (IsolationForest)
 
 | Scenario | Windows | Attack windows | Detected (of attack) | Recall | Mean latency (s) | Max latency (s) |
 |---|---|---|---|---|---|---|
-| `fallback_normal` | 80 | 0 | 0 | — | — | — |
-| `fallback_spoof` | 80 | 40 | 40 | 1.000 | 5.0 | 5.0 |
-| `fallback_replay` | 80 | 30 | 11 | 0.367 | 5.0 | 5.0 |
-| `fallback_malfunction` | 80 | 36 | 36 | 1.000 | 5.0 | 5.0 |
-| `fallback_conflict` | 80 | 32 | 32 | 1.000 | 5.0 | 5.0 |
+| `scenario_cross_sensor_conflict` | 120 | 60 | 0 | 0.000 | — | — |
+| `scenario_gnss_spoof` | 120 | 60 | 14 | 0.233 | 75.0 | 75.0 |
+| `scenario_mixed_c05` | 120 | 6 | 2 | 0.333 | 5.0 | 5.0 |
+| `scenario_mixed_c10` | 120 | 12 | 5 | 0.417 | 6.7 | 10.0 |
+| `scenario_mixed_c20` | 120 | 24 | 11 | 0.458 | 6.7 | 10.0 |
+| `scenario_mixed_c30` | 120 | 36 | 17 | 0.472 | 11.2 | 25.0 |
+| `scenario_network_anomaly` | 120 | 60 | 0 | 0.000 | — | — |
+| `scenario_replay` | 120 | 60 | 54 | 0.900 | 5.0 | 5.0 |
+| `scenario_sensor_malfunction` | 120 | 60 | 41 | 0.683 | 100.0 | 100.0 |
+| `scenario_telemetry_manipulation` | 120 | 60 | 60 | 1.000 | 5.0 | 5.0 |
 
 Latency is measured at window granularity: (first detected window − attack-block start + 1) × 5 s.
 
 ## 4. False positives on clean data
 
-- Clean windows scored: 262; flagged above threshold: 0 (FPR 0.000% vs target ≤1.0%).
+- Clean windows scored: 762; flagged above threshold: 2 (FPR 0.262% vs target ≤1.0%).
 - Target from the brief: high recall on gnss_spoof / sensor_malfunction with low FPs on clean data.
 
 ## 5. Findings & discussion
@@ -48,41 +57,41 @@ Latency is measured at window granularity: (first detected window − attack-blo
 
 ![m1_score_distributions.png](docs/reports/m1_graphs/m1_score_distributions.png)
 ![m1_roc_pr.png](docs/reports/m1_graphs/m1_roc_pr.png)
-![m1_timeline_fallback_spoof.png](docs/reports/m1_graphs/m1_timeline_fallback_spoof.png)
+![m1_timeline_scenario_cross_sensor_conflict.png](docs/reports/m1_graphs/m1_timeline_scenario_cross_sensor_conflict.png)
 
 ## 7. Score-message sample (consumed by M3 trust engine / M5 dashboard)
 
 ```json
 {
   "scores": {
-    "physical_consistency": 0.9799,
-    "anomaly_physical": 0.3425
+    "physical_consistency": 0.8627,
+    "anomaly_physical": 0.1848
   },
   "evidence": [
     {
       "check": "GNSS/IMU position residual",
       "pass": true,
-      "detail": "max position residual 17.7 m vs limit 25 m"
+      "detail": "max position residual 19.4 m vs limit 25 m"
     },
     {
       "check": "GNSS/IMU velocity disagreement",
       "pass": true,
-      "detail": "GNSS/IMU velocity disagreement: 0 m/s vs historical max 22 m/s (reported speed 6 m/s)"
+      "detail": "GNSS/IMU velocity disagreement: 6 m/s vs historical max 22 m/s (reported speed 16 m/s)"
     },
     {
       "check": "Historical speed envelope",
       "pass": true,
-      "detail": "GNSS speed within historical max (6 m/s)"
+      "detail": "GNSS speed within historical max (20 m/s)"
     },
     {
       "check": "Acceleration consistency",
-      "pass": true,
-      "detail": "accel inconsistency 0.47 m/s\u00b2 vs limit 0.60 m/s\u00b2"
+      "pass": false,
+      "detail": "accel inconsistency 2.02 m/s\u00b2 vs limit 0.60 m/s\u00b2"
     },
     {
       "check": "Heading consistency (gyro-integrated)",
       "pass": true,
-      "detail": "max heading residual 0.3\u00b0 vs limit 30\u00b0"
+      "detail": "max heading residual 0.1\u00b0 vs limit 30\u00b0"
     },
     {
       "check": "Course vs heading agreement",
@@ -97,17 +106,17 @@ Latency is measured at window granularity: (first detected window − attack-blo
     {
       "check": "Trajectory smoothness (heading rate)",
       "pass": true,
-      "detail": "heading-rate dispersion 2.7\u00b0/s vs limit 15\u00b0/s"
+      "detail": "heading-rate dispersion 0.0\u00b0/s vs limit 15\u00b0/s"
     },
     {
       "check": "Trajectory deviation",
       "pass": true,
-      "detail": "max track deviation 3.2\u03c3 vs limit 6.0\u03c3"
+      "detail": "max track deviation 4.0\u03c3 vs limit 6.0\u03c3"
     },
     {
       "check": "GNSS signal quality",
       "pass": true,
-      "detail": "min GNSS quality 0.87 vs floor 0.30"
+      "detail": "min GNSS quality 0.88 vs floor 0.30"
     }
   ]
 }

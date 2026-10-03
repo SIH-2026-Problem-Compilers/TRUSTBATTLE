@@ -1,14 +1,19 @@
 # M2 — Temporal & Telemetry/Network Analysis: Evaluation Report
 
-*Generated:* 2026-09-30 17:03 UTC · *Module:* member2_temporal (TASK 6) · *Window:* 50 rows (~5 s @ 10 Hz)
+*Generated:* 2026-10-03 11:41 UTC · *Module:* member2_temporal (TASK 6) · *Window:* 50 rows (~5 s @ 10 Hz)
 
 ## 1. Data
 
-- fallback_normal: 4000 rows, 80 windows, attack share 0.0%, fs≈10 Hz
-- fallback_replay: 4000 rows, 80 windows, attack share 37.5%, fs≈10 Hz
-- fallback_telemetry_manip: 4000 rows, 80 windows, attack share 42.5%, fs≈10 Hz
-- fallback_network_anomaly: 4000 rows, 80 windows, attack share 35.0%, fs≈10 Hz
-- ground truth: data/attacks/ is empty — evaluation uses the M2 fallback generator
+- scenario_cross_sensor_conflict: 6000 rows, 120 windows, attack share 50.0%, fs≈10 Hz
+- scenario_gnss_spoof: 6000 rows, 120 windows, attack share 50.0%, fs≈10 Hz
+- scenario_mixed_c05: 6000 rows, 120 windows, attack share 5.0%, fs≈10 Hz
+- scenario_mixed_c10: 6000 rows, 120 windows, attack share 10.0%, fs≈10 Hz
+- scenario_mixed_c20: 6000 rows, 120 windows, attack share 20.0%, fs≈10 Hz
+- scenario_mixed_c30: 6000 rows, 120 windows, attack share 30.0%, fs≈10 Hz
+- scenario_network_anomaly: 6000 rows, 120 windows, attack share 50.0%, fs≈10 Hz
+- scenario_replay: 6000 rows, 120 windows, attack share 50.0%, fs≈10 Hz
+- scenario_sensor_malfunction: 6000 rows, 120 windows, attack share 50.0%, fs≈10 Hz
+- scenario_telemetry_manipulation: 6000 rows, 120 windows, attack share 50.0%, fs≈10 Hz
 
 ## 2. Detection metrics (window level)
 
@@ -16,26 +21,32 @@ Alert thresholds calibrated on a clean holdout at fpr_target/2 per detector (uni
 
 | Detector | Threshold | Precision | Recall | F1 | FPR | TP | FP | TN | FN |
 |---|---|---|---|---|---|---|---|---|---|
-| Temporal IsolationForest | 0.180 | 1.000 | 0.696 | 0.821 | 0.000 | 64 | 0 | 228 | 28 |
-| Network IsolationForest | 0.163 | 1.000 | 0.674 | 0.805 | 0.000 | 62 | 0 | 228 | 30 |
-| Combined (temporal ∪ network) | 0.180 | 1.000 | 1.000 | 1.000 | 0.000 | 92 | 0 | 228 | 0 |
-| Temporal One-Class SVM (baseline) | — | 0.941 | 0.696 | 0.800 | 0.018 | 64 | 4 | 224 | 28 |
-| Network One-Class SVM (baseline) | — | 0.939 | 0.674 | 0.785 | 0.018 | 62 | 4 | 224 | 30 |
+| Temporal IsolationForest | 0.693 | 0.932 | 0.315 | 0.471 | 0.013 | 138 | 10 | 752 | 300 |
+| Network IsolationForest | 0.100 | 0.874 | 0.333 | 0.483 | 0.028 | 146 | 21 | 741 | 292 |
+| Combined (temporal ∪ network) | 0.693 | 0.872 | 0.482 | 0.621 | 0.041 | 211 | 31 | 731 | 227 |
+| Temporal One-Class SVM (baseline) | — | 0.981 | 0.461 | 0.627 | 0.005 | 202 | 4 | 758 | 236 |
+| Network One-Class SVM (baseline) | — | 0.973 | 0.333 | 0.497 | 0.005 | 146 | 4 | 758 | 292 |
 
 ## 3. Per-scenario detail (Combined IsolationForest)
 
 | Scenario | Windows | Attack windows | Detected (of attack) | Recall | Mean latency (s) | Max latency (s) |
 |---|---|---|---|---|---|---|
-| `fallback_normal` | 80 | 0 | 0 | — | — | — |
-| `fallback_replay` | 80 | 30 | 30 | 1.000 | 5.0 | 5.0 |
-| `fallback_telemetry_manip` | 80 | 34 | 34 | 1.000 | 5.0 | 5.0 |
-| `fallback_network_anomaly` | 80 | 28 | 28 | 1.000 | 5.0 | 5.0 |
+| `scenario_cross_sensor_conflict` | 120 | 60 | 0 | 0.000 | — | — |
+| `scenario_gnss_spoof` | 120 | 60 | 24 | 0.400 | 45.0 | 45.0 |
+| `scenario_mixed_c05` | 120 | 6 | 3 | 0.500 | 5.0 | 5.0 |
+| `scenario_mixed_c10` | 120 | 12 | 6 | 0.500 | 5.0 | 5.0 |
+| `scenario_mixed_c20` | 120 | 24 | 11 | 0.458 | 5.0 | 5.0 |
+| `scenario_mixed_c30` | 120 | 36 | 16 | 0.444 | 10.0 | 25.0 |
+| `scenario_network_anomaly` | 120 | 60 | 60 | 1.000 | 5.0 | 5.0 |
+| `scenario_replay` | 120 | 60 | 7 | 0.117 | 75.0 | 75.0 |
+| `scenario_sensor_malfunction` | 120 | 60 | 24 | 0.400 | 15.0 | 15.0 |
+| `scenario_telemetry_manipulation` | 120 | 60 | 60 | 1.000 | 5.0 | 5.0 |
 
 Latency is measured at window granularity: (first detected window − attack-block start + 1) × 5 s.
 
 ## 4. False positives on clean data
 
-- Clean windows scored: 228; flagged (combined): 0 (FPR 0.000% vs target ≤1.0%).
+- Clean windows scored: 762; flagged (combined): 31 (FPR 4.068% vs target ≤1.0%).
 - Target from the brief: high recall on replay / network_anomaly with low FPs on clean data.
 
 ## 5. Findings & discussion
@@ -50,17 +61,15 @@ Latency is measured at window granularity: (first detected window − attack-blo
 
 ![m2_score_distributions.png](docs/reports/m2_graphs/m2_score_distributions.png)
 ![m2_roc_pr.png](docs/reports/m2_graphs/m2_roc_pr.png)
-![m2_timeline_fallback_replay.png](docs/reports/m2_graphs/m2_timeline_fallback_replay.png)
-![m2_timeline_fallback_network_anomaly.png](docs/reports/m2_graphs/m2_timeline_fallback_network_anomaly.png)
 
 ## 7. Score-message sample (consumed by M3 trust engine / M5 dashboard)
 
 ```json
 {
   "scores": {
-    "temporal_consistency": 0.9975,
-    "anomaly_temporal": 0.0049,
-    "network_integrity": 0.9982
+    "temporal_consistency": 0.9952,
+    "anomaly_temporal": 0.0096,
+    "network_integrity": 0.9978
   },
   "evidence": [
     {
@@ -86,7 +95,7 @@ Latency is measured at window granularity: (first detected window − attack-blo
     {
       "check": "Velocity change-rate regularity",
       "pass": true,
-      "detail": "max speed change rate 0.12 /s vs limit 2.0 /s"
+      "detail": "max speed change rate 0.14 /s vs limit 2.0 /s"
     },
     {
       "check": "Inter-sample interval stability",
@@ -96,7 +105,7 @@ Latency is measured at window granularity: (first detected window − attack-blo
     {
       "check": "Packet inter-arrival spikes",
       "pass": true,
-      "detail": "Packet inter-arrival spike: 22 ms (normal ~20 ms)"
+      "detail": "Packet inter-arrival spike: 23 ms (normal ~20 ms)"
     },
     {
       "check": "Inter-arrival burst pattern",
@@ -111,7 +120,7 @@ Latency is measured at window granularity: (first detected window − attack-blo
     {
       "check": "Packet rate stability",
       "pass": true,
-      "detail": "max packet-rate drop 3.3% below rolling median vs limit 40.0%"
+      "detail": "max packet-rate drop 4.0% below rolling median vs limit 40.0%"
     }
   ]
 }

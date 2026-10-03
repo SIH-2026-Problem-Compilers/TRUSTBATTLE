@@ -24,7 +24,10 @@ sensors:
 
 attacks:            # used by Member 4
   gnss_spoof:
-    offset_start_m: 150
+    # §7 calibration: GNSS claims ~120 km/h while the IMU supports ~55 km/h
+    # → velocity divergence ≈ 18 m/s → offset reached after ramp_s:
+    # 18 m/s × 30 s = 540 m (drift continues unboundedly beyond that)
+    offset_start_m: 540
     ramp_s: 30
   replay:
     delay_s: 12
