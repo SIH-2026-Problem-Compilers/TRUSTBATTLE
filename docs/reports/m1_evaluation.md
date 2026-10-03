@@ -1,6 +1,6 @@
 # M1 — Physical & Sensor Analysis: Evaluation Report
 
-*Generated:* 2026-10-03 11:41 UTC · *Module:* member1_physical (TASK 5) · *Window:* 50 rows (~5 s @ 10 Hz)
+*Generated:* 2026-10-03 13:39 UTC · *Module:* member1_physical (TASK 5) · *Window:* 50 rows (~5 s @ 10 Hz)
 
 ## 1. Data
 
@@ -64,8 +64,8 @@ Latency is measured at window granularity: (first detected window − attack-blo
 ```json
 {
   "scores": {
-    "physical_consistency": 0.8627,
-    "anomaly_physical": 0.1848
+    "physical_consistency": 0.8295,
+    "anomaly_physical": 0.424
   },
   "evidence": [
     {

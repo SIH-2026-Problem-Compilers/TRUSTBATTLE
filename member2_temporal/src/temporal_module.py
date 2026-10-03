@@ -210,8 +210,16 @@ class TemporalScorer:
         if n_anom is None:
             n_anom = self._heuristic_anomaly(feat_df, temporal=False)
 
-        t_anom_val = float(np.clip(np.mean(t_anom), 0.0, 1.0))
-        n_anom_val = float(np.clip(np.mean(n_anom), 0.0, 1.0))
+        # Use max-of-mean-and-p90 to avoid window-mean dilution (§4 threat_model:
+        # 50%-interleaved replay dilutes the mean while the max over the window
+        # still clears the threshold). The p90 is robust to a few clean rows in
+        # an otherwise-attacked window, and the max catches single extreme rows.
+        def _agg(x: np.ndarray) -> float:
+            x = np.clip(x, 0.0, 1.0)
+            return float(max(np.mean(x), np.percentile(x, 90)))
+
+        t_anom_val = float(np.clip(_agg(t_anom), 0.0, 1.0))
+        n_anom_val = float(np.clip(_agg(n_anom), 0.0, 1.0))
 
         ev_t = self.temporal_evidence(feat_df)
         ev_n = self.network_evidence(feat_df)
@@ -264,7 +272,9 @@ class TemporalScorer:
                 np.clip(feat_df["m2_pkt_loss_excess"].to_numpy() / max(net["max_pkt_loss"], 1e-6), 0, 1),
                 np.clip(feat_df["m2_pkt_rate_deficit"].to_numpy() / max(net["max_rate_drop_frac"], 1e-6), 0, 1),
             ]
-        return np.clip(np.mean(np.vstack(parts), axis=0), 0.0, 1.0)
+        per_row = np.clip(np.mean(np.vstack(parts), axis=0), 0.0, 1.0)
+        # Blend mean with p90 to resist window-mean dilution (replay: 50% clean rows).
+        return np.clip(np.maximum(np.mean(per_row), np.percentile(per_row, 90)), 0.0, 1.0)
 
     def _consistency_from_evidence(self, ev: List[Dict[str, Any]],
                                    anomaly_val: float) -> float:

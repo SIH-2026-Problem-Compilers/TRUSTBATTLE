@@ -1,6 +1,6 @@
 # M2 — Temporal & Telemetry/Network Analysis: Evaluation Report
 
-*Generated:* 2026-10-03 11:41 UTC · *Module:* member2_temporal (TASK 6) · *Window:* 50 rows (~5 s @ 10 Hz)
+*Generated:* 2026-10-03 13:39 UTC · *Module:* member2_temporal (TASK 6) · *Window:* 50 rows (~5 s @ 10 Hz)
 
 ## 1. Data
 
@@ -67,9 +67,9 @@ Latency is measured at window granularity: (first detected window − attack-blo
 ```json
 {
   "scores": {
-    "temporal_consistency": 0.9952,
-    "anomaly_temporal": 0.0096,
-    "network_integrity": 0.9978
+    "temporal_consistency": 0.9942,
+    "anomaly_temporal": 0.0115,
+    "network_integrity": 0.9918
   },
   "evidence": [
     {
