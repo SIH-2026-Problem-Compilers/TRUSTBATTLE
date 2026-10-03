@@ -204,13 +204,23 @@ def _score_scenarios() -> Tuple[pd.DataFrame, List[str], Dict[str, float]]:
         y_win = np.array([int(df["gt_anomaly"].iloc[i * WINDOW:(i + 1) * WINDOW].max())
                           for i in range(n_win)])
 
-        def wmean(arr: Optional[np.ndarray]) -> np.ndarray:
+        def wagg(arr: Optional[np.ndarray]) -> np.ndarray:
+            """Per-window aggregation: p90 — matches scorer + calibration."""
             if arr is None:
                 return np.full(n_win, np.nan)
-            return np.array([float(arr[i * WINDOW:(i + 1) * WINDOW].mean()) for i in range(n_win)])
+            out: List[float] = []
+            for i in range(n_win):
+                chunk = arr[i * WINDOW:(i + 1) * WINDOW]
+                if len(chunk) == 0:
+                    out.append(float("nan"))
+                else:
+                    out.append(float(np.percentile(chunk, 90)))
+            return np.array(out)
 
-        s_t_win, s_n_win = wmean(s_t), wmean(s_n)
-        s_t_oc_win, s_n_oc_win = wmean(s_t_oc), wmean(s_n_oc)
+        s_t_win = wagg(s_t)
+        s_n_win = wagg(s_n)
+        s_t_oc_win = wagg(s_t_oc) if s_t_oc is not None else np.full(n_win, np.nan)
+        s_n_oc_win = wagg(s_n_oc) if s_n_oc is not None else np.full(n_win, np.nan)
         s_comb_win = np.fmax(s_t_win, s_n_win)
 
         pred_comb = ((s_t_win >= t_thresh) | (s_n_win >= n_thresh)).astype(int)

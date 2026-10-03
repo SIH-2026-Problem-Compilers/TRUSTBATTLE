@@ -176,33 +176,58 @@ def _transform(scaler, feature_df: pd.DataFrame, columns) -> np.ndarray:
     return scaler.transform(feature_df[cols].to_numpy(dtype=float))
 
 
-def window_mean_scores(model, scaler, feature_df: pd.DataFrame,
+def window_agg_scores(model, scaler, feature_df: pd.DataFrame,
                        window: int = 50) -> np.ndarray:
-    """Per-window mean anomaly scores over *feature_df* (evaluation unit).
+    """Per-window anomaly scores over *feature_df* (evaluation/alert unit).
 
-    The runtime alert rule flags a WINDOW when its mean row score crosses the
-    threshold, so calibration must operate on the same quantity.
+    Uses p90 per window to resist dilution from partial-window attacks
+    (e.g. 50%-interleaved replay): a plain mean would average clean and stale
+    rows together while p90 preserves the anomaly signal from the majority of
+    rows in the window. p90 is preferred over max because it is less sensitive
+    to single-row outliers in clean data (which would otherwise calibrate an
+    overly high threshold). Calibration must use the same aggregation the
+    runtime alert rule uses.
     """
     cols = list(getattr(model, "m2_columns_"))
     X = _transform(scaler, feature_df, cols)
     s = anomaly_score_01(model, X)
     n_win = int(np.ceil(len(s) / max(window, 1)))
-    return np.array([float(s[i * window:(i + 1) * window].mean()) for i in range(n_win)])
+    out: list[float] = []
+    for i in range(n_win):
+        chunk = s[i * window:(i + 1) * window]
+        if len(chunk) == 0:
+            out.append(0.0)
+        else:
+            out.append(float(np.percentile(chunk, 90)))
+    return np.array(out)
 
 
 def calibrate_threshold(model, scaler, clean_holdout: pd.DataFrame,
-                        fpr_target: float, window: int = 50) -> float:
+                        fpr_target: float, window: int = 50,
+                        skip_windows: int = 2) -> float:
     """Choose the alert threshold on a clean holdout for a target FPR.
 
-    Threshold = MAXIMUM window-mean anomaly score over clean holdout windows
-    (window means are the evaluation/alert unit). The max of ~1/fpr_target
-    windows is the (1 - fpr_target) experience-level quantile with a built-in
-    safety margin: it guarantees a false-positive rate at or below the target
-    even for the extreme tail of unseen clean windows, which a plain quantile
-    of a finite sample underestimates.
+    Aggregates per-row anomaly scores into per-window scores using p90 (resists
+    dilution from partial-window attacks like 50%-interleaved replay). The
+    threshold is the (1 - fpr_target) quantile of clean window scores.
+
+    Args:
+        skip_windows: Number of initial windows to skip per contiguous segment
+            (startup transients in clean data can inflate the score and
+            calibrate an overly high threshold).
     """
-    means = window_mean_scores(model, scaler, clean_holdout, window=window)
-    threshold = float(np.max(means))
+    scores = window_agg_scores(model, scaler, clean_holdout, window=window)
+    # Skip initial windows (startup transients) if requested
+    if skip_windows > 0:
+        # Holdout may span multiple files; skip `skip_windows` from each
+        # contiguous block. For simplicity with a single concatenated holdout,
+        # skip the first `skip_windows` windows.
+        scores = scores[skip_windows:]
+    if len(scores) == 0:
+        threshold = 1.0
+    else:
+        q = max(0.5, 1.0 - fpr_target)
+        threshold = float(np.quantile(scores, q))
     model.m2_threshold_ = threshold
     model.m2_fpr_target_ = float(fpr_target)
     return threshold

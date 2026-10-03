@@ -202,11 +202,10 @@ class PhysicalScorer:
             # No trained artifacts yet: fall back to a transparent weighted
             # normalized-disagreement score so scoring always works.
             anomaly = self._heuristic_anomaly(feat_df)
-        # Blend mean with p90 to resist window-mean dilution (threat_model §4:
-        # 50%-interleaved replay dilutes the mean while most rows in the window
-        # still carry the anomaly signature).
+        # p90 resists dilution (50% clean rows won't pull it down much) while
+        # being less sensitive to single-row outliers than max.
         a = np.clip(anomaly, 0.0, 1.0)
-        anomaly_val = float(np.clip(max(np.mean(a), np.percentile(a, 90)), 0.0, 1.0))
+        anomaly_val = float(np.clip(np.percentile(a, 90), 0.0, 1.0))
 
         ev = self.physics_evidence(feat_df)
         consistency = self._consistency_from_evidence(ev, feat_df)
@@ -244,7 +243,7 @@ class PhysicalScorer:
             np.clip(feat_df["m1_traj_deviation_sigma"] / (self._checks["max_deviation_sigma"] * scale), 0, 1),
         ]
         per_row = np.clip(np.mean(np.vstack(parts), axis=0), 0.0, 1.0)
-        return np.clip(max(np.mean(per_row), np.percentile(per_row, 90)), 0.0, 1.0)
+        return np.clip(float(np.percentile(per_row, 90)), 0.0, 1.0)
 
     def _consistency_from_evidence(self, ev: List[Dict[str, Any]], feat_df: pd.DataFrame) -> float:
         """physical_consistency from failing checks + continuous severity.

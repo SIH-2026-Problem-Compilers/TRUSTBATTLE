@@ -89,26 +89,31 @@ def main() -> int:
     eff_fpr = settings["fpr_target"] / 2.0
     for kind, (iso, scaler) in artifacts.items():
         threshold = m2_model.calibrate_threshold(iso, scaler, holdout,
-                                                 fpr_target=eff_fpr)
+                                                 fpr_target=eff_fpr, skip_windows=2)
         thresholds[kind] = threshold
         columns = TEMPORAL_FEATURE_COLUMNS if kind == "temporal" else NETWORK_FEATURE_COLUMNS
         # One-Class SVM (SMO) scales ~quadratically — subsample for the baseline
         ocsvm_train = train.sample(n=min(6000, len(train)), random_state=settings["random_state"])
         ocsvm = m2_model.train_ocsvm_baseline(ocsvm_train, scaler, columns, settings)
         ocsvms[kind] = ocsvm
-        thresholds[kind + "_ocsvm"] = float(np.quantile(
-            m2_model.ocsvm_score_01(ocsvm, scaler, holdout, columns,
-                                    train[columns].to_numpy(dtype=float)),
-            1.0 - eff_fpr,
-        ))
+        ocsvm_scores = m2_model.ocsvm_score_01(ocsvm, scaler, holdout, columns,
+                                                    train[columns].to_numpy(dtype=float))
+        # Skip first 2 windows (startup transients) for OCSVM calibration too
+        ocsvm_win = np.array([float(ocsvm_scores[i * 50:(i + 1) * 50].mean())
+                              for i in range(len(ocsvm_scores) // 50)])
+        ocsvm_win = ocsvm_win[2:] if len(ocsvm_win) > 2 else ocsvm_win
+        thresholds[kind + "_ocsvm"] = float(np.quantile(ocsvm_win, 1.0 - eff_fpr))
 
         scores_train = m2_model.anomaly_score_01(
             iso, scaler.transform(train[iso.m2_columns_].to_numpy(dtype=float)))
         scores_hold = m2_model.anomaly_score_01(
             iso, scaler.transform(holdout[iso.m2_columns_].to_numpy(dtype=float)))
+        # Also show window-aggregated stats (the alert unit) for transparency
+        wavgs = m2_model.window_agg_scores(iso, scaler, holdout)
         print(f"[train] {kind}: clean train mean={scores_train.mean():.3f} "
               f"p99={np.quantile(scores_train, 0.99):.3f} | "
-              f"holdout mean={scores_hold.mean():.3f} max={scores_hold.max():.3f}")
+              f"holdout row mean={scores_hold.mean():.3f} max={scores_hold.max():.3f} | "
+              f"window agg mean={wavgs.mean():.3f} max={wavgs.max():.3f}")
         print(f"[train] {kind}: alert threshold for per-detector FPR<={eff_fpr:.4f} "
               f"(union target {settings['fpr_target']:.3f}): {threshold:.4f} "
               f"(ocsvm {thresholds[kind + '_ocsvm']:.4f})")

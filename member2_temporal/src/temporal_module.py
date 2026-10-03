@@ -216,7 +216,9 @@ class TemporalScorer:
         # an otherwise-attacked window, and the max catches single extreme rows.
         def _agg(x: np.ndarray) -> float:
             x = np.clip(x, 0.0, 1.0)
-            return float(max(np.mean(x), np.percentile(x, 90)))
+            # p90 resists dilution (50% clean rows won't pull it down much)
+            # while being less sensitive to single-row outliers than max.
+            return float(np.percentile(x, 90))
 
         t_anom_val = float(np.clip(_agg(t_anom), 0.0, 1.0))
         n_anom_val = float(np.clip(_agg(n_anom), 0.0, 1.0))
@@ -273,8 +275,8 @@ class TemporalScorer:
                 np.clip(feat_df["m2_pkt_rate_deficit"].to_numpy() / max(net["max_rate_drop_frac"], 1e-6), 0, 1),
             ]
         per_row = np.clip(np.mean(np.vstack(parts), axis=0), 0.0, 1.0)
-        # Blend mean with p90 to resist window-mean dilution (replay: 50% clean rows).
-        return np.clip(np.maximum(np.mean(per_row), np.percentile(per_row, 90)), 0.0, 1.0)
+        # p90 resists dilution while being less outlier-sensitive than max.
+        return np.clip(float(np.percentile(per_row, 90)), 0.0, 1.0)
 
     def _consistency_from_evidence(self, ev: List[Dict[str, Any]],
                                    anomaly_val: float) -> float:

@@ -60,9 +60,9 @@ def test_calibrate_threshold_gives_target_fpr(clean_feat):
     iso, scaler = m2_model.train_temporal_model(train)
     thr = m2_model.calibrate_threshold(iso, scaler, holdout, fpr_target=0.01)
     assert hasattr(iso, "m2_threshold_")
-    # window-mean scores are the alert unit: ~1% of clean windows at/above
-    means = m2_model.window_mean_scores(iso, scaler, holdout, window=50)
-    assert (means >= thr).mean() <= 0.05
+    # p90 window-aggregated scores are the alert unit: ~1% of clean windows at/above
+    scores = m2_model.window_agg_scores(iso, scaler, holdout, window=50)
+    assert (scores >= thr).mean() <= 0.05
 
 
 def test_ocsvm_baseline_and_score(clean_feat):
