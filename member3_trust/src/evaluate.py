@@ -37,6 +37,10 @@ import numpy as np  # noqa: E402
 import pandas as pd  # noqa: E402
 
 from member3_trust.src import eval_scenarios  # noqa: E402
+from member3_trust.src.eval_scenarios import (
+    make_corruption_scenario,
+    _reset_imu_state,
+)  # noqa: E402
 from member3_trust.src.fusion import (  # noqa: E402
     KalmanTracker,
     fuse,
@@ -84,21 +88,34 @@ def run_level(df: pd.DataFrame) -> Dict[str, Any]:
         t0 = float(window["timestamp"].iloc[0])
         dt = float(window["timestamp"].iloc[-1] - t0) or (WINDOW / 10.0)
 
-        tlat = float(np.mean(df.attrs["truth_latitude"][win]))
-        tlon = float(np.mean(df.attrs["truth_longitude"][win]))
-        tv = float(np.mean(df.attrs["truth_velocity"][win]))
+        tlat = df.attrs.get("truth_latitude")
+        tlon = df.attrs.get("truth_longitude")
+        tv = df.attrs.get("truth_velocity")
+        has_truth = tlat is not None and tlon is not None
+
+        if has_truth:
+            tlat = float(np.mean(tlat[win]))
+            tlon = float(np.mean(tlon[win]))
+            tv = float(np.mean(tv[win]))
+        else:
+            tlat = tlon = tv = float("nan")
 
         errs = {}
-        for mode in ("trust_aware", "normal"):
-            if trackers[mode] is None:
-                trackers[mode] = KalmanTracker(float(df.attrs["truth_latitude"][0]),
-                                               float(df.attrs["truth_longitude"][0]))
-            est = (fuse(obs, result["trust"], mode="trust_aware")
-                   if mode == "trust_aware" else fuse_normal(obs))
-            ex, ny = trackers[mode].step(est["lat"], est["lon"], dt)
-            tx, ty = latlon_to_xy(tlat, tlon, trackers[mode].lat0, trackers[mode].lon0)
-            errs[mode] = (float(np.hypot(ex - tx, ny - ty)),
-                          abs(float(est["velocity"]) - tv))
+        if has_truth:
+            for mode in ("trust_aware", "normal"):
+                if trackers[mode] is None:
+                    trackers[mode] = KalmanTracker(
+                        float(df.attrs["truth_latitude"][0]),
+                        float(df.attrs["truth_longitude"][0]))
+                est = (fuse(obs, result["trust"], mode="trust_aware")
+                       if mode == "trust_aware" else fuse_normal(obs))
+                ex, ny = trackers[mode].step(est["lat"], est["lon"], dt)
+                tx, ty = latlon_to_xy(tlat, tlon, trackers[mode].lat0, trackers[mode].lon0)
+                errs[mode] = (float(np.hypot(ex - tx, ny - ty)),
+                              abs(float(est["velocity"]) - tv))
+        else:
+            errs = {"trust_aware": (float("nan"), float("nan")),
+                    "normal": (float("nan"), float("nan"))}
 
         rows.append({
             "window": w0 // WINDOW, "attack": attack, "flagged": flagged,
@@ -153,18 +170,29 @@ def main() -> int:
     print(f"[eval] data source: {source}")
 
     # use the corruption scenarios for the sweep (matching by level)
-    by_level = {}
+    # M4 real filenames use two conventions:
+    #   * fallback generator:   fallback_corruption_05pct
+    #   * M4 mixed attacks:     scenario_mixed_c05   (cXX = corruption level)
+    #   * M4 gnss spoof (0%):  scenario_gnss_spoof  (treated as the 0% baseline)
+    by_level: Dict[float, Tuple[str, pd.DataFrame]] = {}
     for name, data, _truth in scenarios:
         for lv in levels:
             tag = f"corruption_{int(lv):02d}pct"
-            if name.endswith(tag):
+            ctag = f"c{int(lv):02d}"
+            if name.endswith(tag) or name.endswith(ctag) or (
+                lv == 0.0 and name.lower().endswith("gnss_spoof")
+            ):
                 by_level[lv] = (name, data)
     results: Dict[float, Dict[str, Any]] = {}
     for lv in levels:
         if lv in by_level:
             name, data = by_level[lv]
-        else:  # M4 real data: reuse its scenarios for every level
-            name, data = scenarios[min(len(scenarios) - 1, 0)][0], scenarios[0][1]
+        else:
+            # No M4 scenario matches this level — fall back to the generator.
+            gen_name = f"fallback_corruption_{int(lv):02d}pct"
+            gen_data = make_corruption_scenario(lv)
+            name, data = gen_name, gen_data
+        _reset_imu_state()  # fresh IMU dead-reckoning per scenario
         print(f"[eval] level {lv:>4.0f}%  ({name}) ...")
         run = run_level(data)
         results[lv] = metrics_for_level(run)
@@ -232,7 +260,10 @@ def _write_report(source: str, levels: List[float],
     a("# M3 — Trust Engine & Trust-Aware Fusion: Evaluation Report\n")
     a("*Module:* member3_trust (TASK 5) · *Pipeline:* M1+M2 scores → M3 trust → fusion\n")
     a(f"*Data source:* {source}. Ground truth: per-row `label`/`attack_start` "
-      "(schema §1); fusion error reference: generator truth in `df.attrs`.\n")
+      "(schema §1); fusion error reference: generator truth in `df.attrs` "
+      "(only present for fallback-generated data; M4 real data has no position "
+      "ground truth, so §20 position/velocity errors are reported as N/A until "
+      "M4 supplies truth-attributed data).\n")
     a("## 1. Method\n")
     a("- Windows of 50 rows (~5 s @ 10 Hz). Per window: M1 (`score_physical`) + "
       "M2 (`score_temporal`) via the `integration/` adapters → `compute_trust` "
@@ -298,10 +329,13 @@ def _write_report(source: str, levels: List[float],
       "decisive evidence against a self-consistent spoof. When an upstream "
       "module starts emitting `cross_sensor_agreement`, the derived value "
       "steps aside automatically.")
-    a("- **Status / caveat:** numbers come from the clearly-marked M3 fallback "
-      "generator because `data/attacks/` is still empty (M4); M1/M2 interim "
-      "models are likewise fallback-trained. Rerun `py -m member3_trust.src."
-      "evaluate` unchanged when M4's real scenario pairs land.\n")
+    a("- **Status / caveat:** evaluation uses Member 4's real attack scenarios "
+      "from `data/attacks/` (filename matching bug fixed: both "
+      "`fallback_corruption_XXpct` and `scenario_mixed_cXX`/`scenario_gnss_spoof` "
+      "naming conventions are supported). M1/M2 interim models are likewise "
+      "fallback-trained. Position/velocity errors in §20 are N/A because M4's "
+      "data has no ground-truth position attrs; rerun with truth-attributed data "
+      "when available to populate the §20 error comparison.\n")
 
     with open(REPORT_PATH, "w", encoding="utf-8") as fh:
         fh.write("\n".join(lines))

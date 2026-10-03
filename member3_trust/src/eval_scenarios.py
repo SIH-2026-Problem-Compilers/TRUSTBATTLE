@@ -238,6 +238,36 @@ def make_corruption_scenario(level_pct: float, n: int = 1600, seed: int = 7,
 # ---------------------------------------------------------------------------
 # per-sensor fusion observations (MVP simulated sources, §17)
 # ---------------------------------------------------------------------------
+
+# IMU dead-reckoning state: persists across sensor_observations calls so the
+# IMU position drifts away from a spoof over multiple windows (the §22 story:
+# GNSS and IMU start agreeing, then diverge as the spoof accumulates).
+_IMU_STATE: Dict[str, Any] = {}
+
+
+def _reset_imu_state() -> None:
+    """Reset IMU dead-reckoning state (called between scenarios)."""
+    global _IMU_STATE
+    _IMU_STATE = {}
+
+
+def _get_imu_state(df: pd.DataFrame) -> Dict[str, float]:
+    """Get or initialize IMU dead-reckoning state for *df*."""
+    global _IMU_STATE
+    if not _IMU_STATE or _IMU_STATE.get("_df_id") != id(df):
+        # Initialize from first row (assumed clean at scenario start)
+        first = df.iloc[0]
+        _IMU_STATE = {
+            "_df_id": id(df),
+            "lat": float(first["latitude"]),
+            "lon": float(first["longitude"]),
+            "v_x": float(first["vx"]),
+            "v_y": float(first["vy"]),
+            "last_idx": 0,
+        }
+    return _IMU_STATE
+
+
 def truth_positions(df: pd.DataFrame, window: slice) -> Tuple[Optional[float], Optional[float]]:
     """Mean truth (lat, lon) over *window* from attrs (None if unavailable)."""
     tlat, tlon = df.attrs.get("truth_latitude"), df.attrs.get("truth_longitude")
@@ -253,46 +283,79 @@ def sensor_observations(df: pd.DataFrame, window: slice,
     MVP simulated sources (about_project.txt §17):
 
     * ``gnss``   — reported GNSS position/velocity (the spoofable source)
-    * ``imu``    — simulated dead-reckoned position: truth + drift + 2 m noise
-    * ``visual`` — simulated visual position estimate: truth + 15 m noise
+    * ``imu``    — dead-reckoned from IMU accel/gyro integration starting
+                  from the scenario's first row; drifts away from a spoof over
+                  time because accel is not spoofed (§22 story)
+    * ``visual`` — independent position estimate: truth (or IMU-based) + noise
+                  (corroborates IMU against spoof)
     * ``net``    — excluded (telemetry channel contributes trust, not position)
 
-    Without truth attrs (real M4 data) the IMU/visual sources fall back to
-    the reported fields degraded by the same noise — documented in the
-    evaluation report until M4 supplies a clean reference.
+    With truth attrs (fallback generator) the IMU/visual are anchored to truth
+    + calibrated noise. Without truth attrs (M4 real data) the IMU dead-
+    reckons from the first row using only accel — this catches a well-built
+    GNSS spoof because the spoofed velocity diverges from the accel-integrated
+    velocity (see §22 story).
     """
     w = df.iloc[window]
     if len(w) == 0:
         return {}
     rng = np.random.default_rng(rng_seed)
     tlat, tlon = truth_positions(df, window)
-    ref_lat, ref_lon = (tlat, tlon) if tlat is not None else (
-        float(w["latitude"].mean()), float(w["longitude"].mean()))
     m_per_deg_lat = 111_320.0
+    has_truth = tlat is not None and tlon is not None
+    ref_lat = float(tlat) if has_truth else float(w["latitude"].iloc[0])
+    ref_lon = float(tlon) if has_truth else float(w["longitude"].iloc[0])
     m_per_deg_lon = _meters_per_deg_lon(ref_lat)
 
-    def jitter(lat_deg: float, lon_deg: float, n_m: float) -> Tuple[float, float]:
-        return (lat_deg + rng.normal(0, n_m) / m_per_deg_lat,
-                lon_deg + rng.normal(0, n_m) / m_per_deg_lon)
+    # ---- GNSS: reported position/velocity (spoofable) --------------------
+    gnss_lat = float(w["latitude"].mean())
+    gnss_lon = float(w["longitude"].mean())
+    gnss_vel = float(w["velocity"].mean())
 
-    imu_lat, imu_lon = jitter(ref_lat, ref_lon, 2.0)
-    vis_lat, vis_lon = jitter(ref_lat, ref_lon, 4.0)
-    v_truth = df.attrs.get("truth_velocity")
-    if v_truth is not None:
-        v_clean = float(np.mean(v_truth[window]))
+    # ---- IMU: dead-reckoned from accel integration -----------------------
+    state = _get_imu_state(df)
+    dt = 1.0 / _FS
+    win_start = int(w.index[0])
+    win_end = int(w.index[-1]) + 1
+    # Integrate accel from the last processed row to the end of this window
+    for i in range(state["last_idx"], win_end):
+        if i == 0:
+            continue
+        state["v_x"] += float(df["accel_x"].iloc[i]) * dt
+        state["v_y"] += float(df["accel_y"].iloc[i]) * dt
+        d_east = state["v_x"] * dt
+        d_north = state["v_y"] * dt
+        state["lat"] += d_north / m_per_deg_lat
+        state["lon"] += d_east / m_per_deg_lon
+    state["last_idx"] = win_end
+    imu_lat = state["lat"]
+    imu_lon = state["lon"]
+    v_imu = float(np.hypot(state["v_x"], state["v_y"]))
+    # IMU measurement noise (IMU drift)
+    if has_truth:
+        imu_lat += rng.normal(0, 2.0) / m_per_deg_lat
+        imu_lon += rng.normal(0, 2.0) / m_per_deg_lon
     else:
-        v_clean = float(w.loc[w["label"] == 0, "velocity"].mean())
-        if not np.isfinite(v_clean):
-            v_clean = float(w["velocity"].mean())
+        imu_lat += rng.normal(0, 3.0) / m_per_deg_lat
+        imu_lon += rng.normal(0, 3.0) / m_per_deg_lon
+
+    # ---- Visual: independent position estimate ---------------------------
+    if has_truth:
+        vis_lat = tlat + rng.normal(0, 4.0) / m_per_deg_lat
+        vis_lon = tlon + rng.normal(0, 4.0) / m_per_deg_lon
+    else:
+        vis_lat = imu_lat + rng.normal(0, 10.0) / m_per_deg_lat
+        vis_lon = imu_lon + rng.normal(0, 10.0) / m_per_deg_lon
+    v_vis = v_imu + rng.normal(0, 1.0)
 
     return {
         "gnss": {
-            "lat": float(w["latitude"].mean()),
-            "lon": float(w["longitude"].mean()),
-            "velocity": float(w["velocity"].mean()),
+            "lat": gnss_lat,
+            "lon": gnss_lon,
+            "velocity": gnss_vel,
         },
-        "imu": {"lat": imu_lat, "lon": imu_lon, "velocity": v_clean},
-        "visual": {"lat": vis_lat, "lon": vis_lon, "velocity": v_clean},
+        "imu": {"lat": imu_lat, "lon": imu_lon, "velocity": v_imu},
+        "visual": {"lat": vis_lat, "lon": vis_lon, "velocity": v_vis},
     }
 
 
