@@ -89,7 +89,7 @@ class MockTrustService(TrustServiceABC):
     def _build_demo_story(n_points: int = 300) -> List[Dict[str, Any]]:
         """Approximate §22 demo numbers as 10-Hz sample sequence (30 s)."""
         story: List[Dict[str, Any]] = []
-        base_lat, base_lon = 48.8566, 2.3522  # Paris-ish; any lat/lon works for visuals
+        base_lat, base_lon = 28.61, 77.21  # Delhi-region reference airfield (India), same as M1/M2/M4 data
         attack_start, attack_end = 60, 200  # indices: 6 s to 20 s into playback
 
         for i in range(n_points):

@@ -2,6 +2,9 @@ import React, { useEffect, useMemo, useRef } from 'react';
 import { MapContainer, TileLayer, Polyline, Marker, Popup, CircleMarker } from 'react-leaflet';
 import L from 'leaflet';
 
+const CARTO_KEY = import.meta.env.VITE_CARTO_KEY || '';
+const CARTO_QS = CARTO_KEY ? `?key=${CARTO_KEY}` : '';
+
 const PALETTE = {
   true: '#10b981',
   reported: '#ef4444',
@@ -14,7 +17,7 @@ function pathOf(arr) {
 
 function centerOf(arrs) {
   const all = arrs.flat().filter((p) => isFinite(Number(p?.lat)) && isFinite(Number(p?.lon)));
-  if (!all.length) return [48.8566, 2.3522];
+  if (!all.length) return [28.61, 77.21];  // Delhi-region reference airfield (India), matches pipeline data
   const lats = all.map((p) => Number(p.lat));
   const lons = all.map((p) => Number(p.lon));
   return [lats.reduce((a, b) => a + b, 0) / lats.length,
@@ -73,7 +76,7 @@ export default function MapView({ trajectory, currentState }) {
       >
         <TileLayer
           attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
-          url="https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png"
+          url={`https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png${CARTO_QS}`}
           maxZoom={19}
         />
 
