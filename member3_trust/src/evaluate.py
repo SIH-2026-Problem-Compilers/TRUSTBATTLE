@@ -332,8 +332,9 @@ def _write_report(source: str, levels: List[float],
     a("- **Status / caveat:** evaluation uses Member 4's real attack scenarios "
       "from `data/attacks/` (filename matching bug fixed: both "
       "`fallback_corruption_XXpct` and `scenario_mixed_cXX`/`scenario_gnss_spoof` "
-      "naming conventions are supported). M1/M2 interim models are likewise "
-      "fallback-trained. Position/velocity errors in §20 are N/A because M4's "
+      "naming conventions are supported). M1/M2 models are retrained on "
+      "REAL GPS data (data/real/geolife.csv, converted from Microsoft GeoLife) "
+      "plus M4 clean data (2026-10-04). Position/velocity errors in §20 are N/A because M4's "
       "data has no ground-truth position attrs; rerun with truth-attributed data "
       "when available to populate the §20 error comparison.\n")
 

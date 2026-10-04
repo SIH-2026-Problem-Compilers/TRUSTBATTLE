@@ -1,13 +1,13 @@
 {
-  "m2_pkt_rate": 106.16994439418178,
-  "m2_pkt_rate_ratio": 1.0631176744685238,
-  "m2_pkt_rate_deficit": 0.0617616397258841,
-  "m2_pkt_iat_ms": 24.738732530578833,
-  "m2_pkt_iat_ratio": 1.237993610136025,
-  "m2_pkt_iat_excess_ms": 0.0,
-  "m2_pkt_iat_std_ms": 2.217268644156771,
-  "m2_pkt_iat_burst": 0.0,
-  "m2_pkt_loss": 0.0,
-  "m2_pkt_loss_excess": 0.0,
-  "m2_net_disruption": 0.15440409931471025
+  "m2_pkt_rate": 105.35345960495613,
+  "m2_pkt_rate_ratio": 5.0,
+  "m2_pkt_rate_deficit": 0.8333333333333334,
+  "m2_pkt_iat_ms": 15000.0,
+  "m2_pkt_iat_ratio": 6.0,
+  "m2_pkt_iat_excess_ms": 6000.0,
+  "m2_pkt_iat_std_ms": 11981.73212694662,
+  "m2_pkt_iat_burst": 1.0,
+  "m2_pkt_loss": 0.1,
+  "m2_pkt_loss_excess": 1.734723475976807e-17,
+  "m2_net_disruption": 1.0
 }

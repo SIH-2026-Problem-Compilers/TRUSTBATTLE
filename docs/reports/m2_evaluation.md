@@ -1,6 +1,6 @@
 # M2 — Temporal & Telemetry/Network Analysis: Evaluation Report
 
-*Generated:* 2026-10-03 13:59 UTC · *Module:* member2_temporal (TASK 6) · *Window:* 50 rows (~5 s @ 10 Hz)
+*Generated:* 2026-10-04 09:05 UTC · *Module:* member2_temporal (TASK 6) · *Window:* 50 rows (~5 s @ 10 Hz)
 
 ## 1. Data
 
@@ -21,32 +21,32 @@ Alert thresholds calibrated on a clean holdout at fpr_target/2 per detector (uni
 
 | Detector | Threshold | Precision | Recall | F1 | FPR | TP | FP | TN | FN |
 |---|---|---|---|---|---|---|---|---|---|
-| Temporal IsolationForest | 0.836 | 0.870 | 0.306 | 0.453 | 0.026 | 134 | 20 | 742 | 304 |
-| Network IsolationForest | 0.416 | 1.000 | 0.333 | 0.500 | 0.000 | 146 | 0 | 762 | 292 |
-| Combined (temporal ∪ network) | 0.836 | 0.912 | 0.473 | 0.623 | 0.026 | 207 | 20 | 742 | 231 |
-| Temporal One-Class SVM (baseline) | — | 0.981 | 0.482 | 0.646 | 0.005 | 211 | 4 | 758 | 227 |
-| Network One-Class SVM (baseline) | — | 0.967 | 0.333 | 0.496 | 0.007 | 146 | 5 | 757 | 292 |
+| Temporal IsolationForest | 0.560 | 1.000 | 0.082 | 0.152 | 0.000 | 36 | 0 | 762 | 402 |
+| Network IsolationForest | 0.630 | 1.000 | 0.103 | 0.186 | 0.000 | 45 | 0 | 762 | 393 |
+| Combined (temporal ∪ network) | 0.630 | 1.000 | 0.185 | 0.312 | 0.000 | 81 | 0 | 762 | 357 |
+| Temporal One-Class SVM (baseline) | — | 0.980 | 0.450 | 0.617 | 0.005 | 197 | 4 | 758 | 241 |
+| Network One-Class SVM (baseline) | — | 0.974 | 0.340 | 0.504 | 0.005 | 149 | 4 | 758 | 289 |
 
 ## 3. Per-scenario detail (Combined IsolationForest)
 
 | Scenario | Windows | Attack windows | Detected (of attack) | Recall | Mean latency (s) | Max latency (s) |
 |---|---|---|---|---|---|---|
 | `scenario_cross_sensor_conflict` | 120 | 60 | 0 | 0.000 | — | — |
-| `scenario_gnss_spoof` | 120 | 60 | 29 | 0.483 | 5.0 | 5.0 |
-| `scenario_mixed_c05` | 120 | 6 | 3 | 0.500 | 5.0 | 5.0 |
-| `scenario_mixed_c10` | 120 | 12 | 6 | 0.500 | 5.0 | 5.0 |
-| `scenario_mixed_c20` | 120 | 24 | 12 | 0.500 | 8.8 | 20.0 |
-| `scenario_mixed_c30` | 120 | 36 | 18 | 0.500 | 8.8 | 20.0 |
-| `scenario_network_anomaly` | 120 | 60 | 60 | 1.000 | 5.0 | 5.0 |
-| `scenario_replay` | 120 | 60 | 3 | 0.050 | 75.0 | 75.0 |
-| `scenario_sensor_malfunction` | 120 | 60 | 16 | 0.267 | 50.0 | 50.0 |
-| `scenario_telemetry_manipulation` | 120 | 60 | 60 | 1.000 | 5.0 | 5.0 |
+| `scenario_gnss_spoof` | 120 | 60 | 0 | 0.000 | — | — |
+| `scenario_mixed_c05` | 120 | 6 | 2 | 0.333 | 5.0 | 5.0 |
+| `scenario_mixed_c10` | 120 | 12 | 2 | 0.167 | 7.5 | 10.0 |
+| `scenario_mixed_c20` | 120 | 24 | 3 | 0.125 | 7.5 | 10.0 |
+| `scenario_mixed_c30` | 120 | 36 | 7 | 0.194 | 12.5 | 15.0 |
+| `scenario_network_anomaly` | 120 | 60 | 39 | 0.650 | 10.0 | 10.0 |
+| `scenario_replay` | 120 | 60 | 0 | 0.000 | — | — |
+| `scenario_sensor_malfunction` | 120 | 60 | 0 | 0.000 | — | — |
+| `scenario_telemetry_manipulation` | 120 | 60 | 28 | 0.467 | 10.0 | 10.0 |
 
 Latency is measured at window granularity: (first detected window − attack-block start + 1) × 5 s.
 
 ## 4. False positives on clean data
 
-- Clean windows scored: 762; flagged (combined): 20 (FPR 2.625% vs target ≤1.0%).
+- Clean windows scored: 762; flagged (combined): 0 (FPR 0.000% vs target ≤1.0%).
 - Target from the brief: high recall on replay / network_anomaly with low FPs on clean data.
 
 ## 5. Findings & discussion

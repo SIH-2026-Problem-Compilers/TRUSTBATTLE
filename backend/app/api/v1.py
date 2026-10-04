@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from pydantic import BaseModel, ConfigDict
 from sqlalchemy.orm import Session
-from typing import List, Optional
+from typing import Any, Dict, List, Optional
 
 from backend.app.core.config import settings
 from backend.app.db import get_db
@@ -107,6 +108,7 @@ def start_attack_scenario(
         "normal", "gnss_spoof", "replay", "telemetry_manip",
         "network_anomaly", "sensor_malfunction", "cross_sensor_conflict",
         "mixed_c05", "mixed_c10", "mixed_c20", "mixed_c30",
+        "real_geolife",  # real GPS dataset (data/real/) through the pipeline
     }
     if scenario not in valid_scenarios:
         raise HTTPException(
@@ -123,3 +125,56 @@ def stop_scenario(
 ) -> dict:
     service.stop_playback(session_id)
     return {"status": "stopped", "session_id": session_id}
+
+
+@router.post("/demo/advance/{session_id}")
+def advance_scenario(
+    session_id: str,
+    service: TrustServiceABC = Depends(get_trust_service),
+) -> TrustMessage:
+    """Advance a playback session one step (used for real-data replay)."""
+    msg = service.advance_playback(session_id)
+    if msg is None:
+        raise HTTPException(status_code=404, detail="session unknown or playback finished")
+    return msg
+
+
+# ---------------------------------------------------------------------------
+# real-data endpoints (live device GPS -> M1/M2/M3 pipeline)
+# ---------------------------------------------------------------------------
+class RealIngestRequest(BaseModel):
+    model_config = ConfigDict(extra="allow")
+    rows: List[Dict[str, Any]]
+
+
+@router.post("/real/session")
+def reset_real_session() -> dict:
+    """Start a fresh live-capture session (clears buffer/trajectory)."""
+    from backend.app.services.real_data import get_real_session
+    get_real_session().reset()
+    return {"status": "ok", "source": "real_device_gps"}
+
+
+@router.post("/real/ingest")
+def ingest_real_rows(body: RealIngestRequest) -> dict:
+    """Ingest real sensor rows; scores them through the M1->M2->M3 pipeline."""
+    from backend.app.services.real_data import get_real_session
+    out = get_real_session().add_rows(body.rows)
+    return {
+        "accepted": out["accepted"],
+        "total_rows": out["total_rows"],
+        "trust": out["trust"],
+        "source": "real_device_gps",
+    }
+
+
+@router.get("/real/trajectory", response_model=TrajectoryResponse)
+def get_real_trajectory() -> TrajectoryResponse:
+    from backend.app.services.real_data import get_real_session
+    return get_real_session().trajectory()
+
+
+@router.get("/real/datasets")
+def list_real_datasets() -> dict:
+    from backend.app.services.real_data import list_real_datasets as _list
+    return {"datasets": _list(), "dir": "data/real"}

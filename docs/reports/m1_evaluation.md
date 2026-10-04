@@ -1,6 +1,6 @@
 # M1 — Physical & Sensor Analysis: Evaluation Report
 
-*Generated:* 2026-10-03 14:06 UTC · *Module:* member1_physical (TASK 5) · *Window:* 50 rows (~5 s @ 10 Hz)
+*Generated:* 2026-10-04 09:04 UTC · *Module:* member1_physical (TASK 5) · *Window:* 50 rows (~5 s @ 10 Hz)
 
 ## 1. Data
 
@@ -21,29 +21,29 @@ Alert threshold calibrated on a clean holdout for FPR target 0.010 (data_schema.
 
 | Model | Threshold | Precision | Recall | F1 | FPR | TP | FP | TN | FN |
 |---|---|---|---|---|---|---|---|---|---|
-| IsolationForest (primary) | 0.650 | 0.990 | 0.466 | 0.634 | 0.003 | 204 | 2 | 760 | 234 |
-| One-Class SVM (baseline) | 0.718 | 0.978 | 0.822 | 0.893 | 0.010 | 360 | 8 | 754 | 78 |
+| IsolationForest (primary) | 0.459 | 0.988 | 0.555 | 0.711 | 0.004 | 243 | 3 | 759 | 195 |
+| One-Class SVM (baseline) | 0.636 | 0.979 | 0.833 | 0.900 | 0.010 | 365 | 8 | 754 | 73 |
 
 ## 3. Per-scenario detail (IsolationForest)
 
 | Scenario | Windows | Attack windows | Detected (of attack) | Recall | Mean latency (s) | Max latency (s) |
 |---|---|---|---|---|---|---|
-| `scenario_cross_sensor_conflict` | 120 | 60 | 0 | 0.000 | — | — |
-| `scenario_gnss_spoof` | 120 | 60 | 14 | 0.233 | 75.0 | 75.0 |
-| `scenario_mixed_c05` | 120 | 6 | 2 | 0.333 | 5.0 | 5.0 |
-| `scenario_mixed_c10` | 120 | 12 | 5 | 0.417 | 6.7 | 10.0 |
-| `scenario_mixed_c20` | 120 | 24 | 11 | 0.458 | 6.7 | 10.0 |
-| `scenario_mixed_c30` | 120 | 36 | 17 | 0.472 | 11.2 | 25.0 |
+| `scenario_cross_sensor_conflict` | 120 | 60 | 5 | 0.083 | 55.0 | 55.0 |
+| `scenario_gnss_spoof` | 120 | 60 | 46 | 0.767 | 5.0 | 5.0 |
+| `scenario_mixed_c05` | 120 | 6 | 3 | 0.500 | 5.0 | 5.0 |
+| `scenario_mixed_c10` | 120 | 12 | 7 | 0.583 | 6.2 | 10.0 |
+| `scenario_mixed_c20` | 120 | 24 | 14 | 0.583 | 6.2 | 10.0 |
+| `scenario_mixed_c30` | 120 | 36 | 21 | 0.583 | 6.2 | 10.0 |
 | `scenario_network_anomaly` | 120 | 60 | 0 | 0.000 | — | — |
-| `scenario_replay` | 120 | 60 | 54 | 0.900 | 5.0 | 5.0 |
-| `scenario_sensor_malfunction` | 120 | 60 | 41 | 0.683 | 100.0 | 100.0 |
+| `scenario_replay` | 120 | 60 | 34 | 0.567 | 5.0 | 5.0 |
+| `scenario_sensor_malfunction` | 120 | 60 | 53 | 0.883 | 40.0 | 40.0 |
 | `scenario_telemetry_manipulation` | 120 | 60 | 60 | 1.000 | 5.0 | 5.0 |
 
 Latency is measured at window granularity: (first detected window − attack-block start + 1) × 5 s.
 
 ## 4. False positives on clean data
 
-- Clean windows scored: 762; flagged above threshold: 2 (FPR 0.262% vs target ≤1.0%).
+- Clean windows scored: 762; flagged above threshold: 3 (FPR 0.394% vs target ≤1.0%).
 - Target from the brief: high recall on gnss_spoof / sensor_malfunction with low FPs on clean data.
 
 ## 5. Findings & discussion
@@ -65,7 +65,7 @@ Latency is measured at window granularity: (first detected window − attack-blo
 {
   "scores": {
     "physical_consistency": 0.8295,
-    "anomaly_physical": 0.424
+    "anomaly_physical": 0.1941
   },
   "evidence": [
     {
@@ -81,7 +81,7 @@ Latency is measured at window granularity: (first detected window − attack-blo
     {
       "check": "Historical speed envelope",
       "pass": true,
-      "detail": "GNSS speed within historical max (20 m/s)"
+      "detail": "GNSS speed within historical max (56 m/s)"
     },
     {
       "check": "Acceleration consistency",

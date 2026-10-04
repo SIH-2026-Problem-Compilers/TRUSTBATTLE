@@ -13,7 +13,7 @@
 ## 2. Final-demo story (§22, DoD #3)
 
 - start trust **93.5** → min under spoofing **5.0** (RED) → recovers to **93.0**. All demo acceptance checks passed: `6/7`.
-- Per-sensor trust at attack peak: gnss 5, imu 94, visual 96, net 97 — the suspect source (GNSS) collapses while independent sources keep high trust.
+- Per-sensor trust at attack peak: gnss 5, imu 95, visual 97, net 97 — the suspect source (GNSS) collapses while independent sources keep high trust.
 - GNSS fusion weight 0.249 → 0.017 (§14 influence reduction).
 ![demo trust curve](m3_graphs/m3_demo_trust_curve.png)
 
@@ -24,7 +24,7 @@
 | 0 | 120 | 60 | 1.000 | 0.983 | 0.992 | 0.000 | 5.0 | 5.0 |
 | 5 | 120 | 6 | 0.083 | 0.500 | 0.143 | 0.289 | 0.0 | 19.9 |
 | 10 | 120 | 12 | 0.146 | 0.583 | 0.233 | 0.380 | 0.0 | 5.0 |
-| 20 | 120 | 24 | 0.267 | 0.667 | 0.381 | 0.458 | 0.0 | 5.0 |
+| 20 | 120 | 24 | 0.271 | 0.667 | 0.386 | 0.448 | 0.0 | 5.0 |
 | 30 | 120 | 36 | 0.394 | 0.722 | 0.510 | 0.476 | 0.0 | 5.0 |
 
 ## 4. Robustness: Normal vs Trust-Aware fusion (§20)
@@ -48,4 +48,4 @@
 - **No permanent blacklist**: after the attack ends, trust recovers gradually (recovery_rate 0.25) and returns above GREEN — §13 behaviour.
 - **Explainability**: every alert carries evidence entries with the implicated sensor, possible causes (§16 wording — never "hacked") and a recommended action (§4/§15).
 - **Cross-sensor evidence (Layer 5, §11)** is derived by M3 from the per-sensor estimates with consensus-based blame routing; it is the decisive evidence against a self-consistent spoof. When an upstream module starts emitting `cross_sensor_agreement`, the derived value steps aside automatically.
-- **Status / caveat:** evaluation uses Member 4's real attack scenarios from `data/attacks/` (filename matching bug fixed: both `fallback_corruption_XXpct` and `scenario_mixed_cXX`/`scenario_gnss_spoof` naming conventions are supported). M1/M2 interim models are likewise fallback-trained. Position/velocity errors in §20 are N/A because M4's data has no ground-truth position attrs; rerun with truth-attributed data when available to populate the §20 error comparison.
+- **Status / caveat:** evaluation uses Member 4's real attack scenarios from `data/attacks/` (filename matching bug fixed: both `fallback_corruption_XXpct` and `scenario_mixed_cXX`/`scenario_gnss_spoof` naming conventions are supported). M1/M2 models are retrained on REAL GPS data (data/real/geolife.csv, converted from Microsoft GeoLife) plus M4 clean data (2026-10-04). Position/velocity errors in §20 are N/A because M4's data has no ground-truth position attrs; rerun with truth-attributed data when available to populate the §20 error comparison.

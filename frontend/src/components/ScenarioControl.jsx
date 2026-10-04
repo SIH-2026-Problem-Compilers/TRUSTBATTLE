@@ -11,12 +11,30 @@ const SCENARIOS = [
   { key: 'mixed_c20', label: 'Mixed 20%', color: '#6366f1' },
 ];
 
+const REAL_SCENARIOS = [
+  { key: 'real_geolife', label: 'Real Dataset (GPS traces)', color: '#a3e635' },
+  { key: 'real_gps', label: 'Live Device GPS', color: '#22d3ee' },
+];
+
 export default function ScenarioControl({ active, onSelect, wsConnected }) {
   return (
     <div className="scenario-control">
       <div className="scenario-label">Scenario Playback</div>
       <div className="scenario-buttons">
         {SCENARIOS.map((s) => (
+          <button
+            key={s.key}
+            className={`scenario-btn ${active === s.key ? 'active' : ''}`}
+            style={active === s.key ? { background: s.color, borderColor: s.color } : {}}
+            onClick={() => onSelect(s.key)}
+          >
+            {s.label}
+          </button>
+        ))}
+      </div>
+      <div className="scenario-label" style={{ marginTop: 8 }}>Real Data (model predicts live)</div>
+      <div className="scenario-buttons">
+        {REAL_SCENARIOS.map((s) => (
           <button
             key={s.key}
             className={`scenario-btn ${active === s.key ? 'active' : ''}`}

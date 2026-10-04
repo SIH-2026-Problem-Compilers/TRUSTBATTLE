@@ -470,6 +470,13 @@ class RealTrustService(TrustServiceABC):
         return self._mock.get_alerts(active_only, limit)
 
     def get_trajectory(self, scenario: Optional[str] = None) -> TrajectoryResponse:
+        if scenario and scenario.startswith("real_"):
+            from backend.app.services.real_data import replay_trajectory
+            name = scenario[len("real_"):] or "geolife"
+            try:
+                return replay_trajectory(name)
+            except Exception:
+                pass
         if not self._ready:
             return self._mock.get_trajectory(scenario)
         try:
@@ -518,6 +525,29 @@ class RealTrustService(TrustServiceABC):
             return self._mock.get_trajectory(scenario)
 
     def start_attack_scenario(self, scenario: str) -> Dict[str, Any]:
+        if scenario.startswith("real_"):
+            # Replay REAL data (data/real/) precomputed through the M1->M2->M3 pipeline
+            from backend.app.services.real_data import build_replay_messages
+            name = scenario[len("real_"):] or "geolife"
+            try:
+                msgs = build_replay_messages(name)
+            except Exception:
+                msgs = []
+            if msgs:
+                sid = uuid.uuid4().hex[:10]
+                session = PlaybackSession(
+                    session_id=sid,
+                    scenario=scenario,
+                    start_time=time.time(),
+                    speed=settings.ws_playback_speed,
+                    is_active=True,
+                    current_index=0,
+                    messages=msgs,
+                )
+                self._playbacks[sid] = session
+                return {"session_id": sid, "scenario": scenario,
+                        "n_messages": len(msgs), "source": "real_data"}
+            # real data not available — fall through to the mock story
         if not self._ready:
             return self._mock.start_attack_scenario(scenario)
         sid = uuid.uuid4().hex[:10]

@@ -28,6 +28,13 @@ export const api = {
     _get(`/trajectory${scenario ? `?scenario=${encodeURIComponent(scenario)}` : ''}`),
   startScenario: (scenario) => _post(`/demo/attack/${encodeURIComponent(scenario)}`),
   stopScenario: (sessionId) => _post(`/demo/stop/${encodeURIComponent(sessionId)}`),
+  advanceScenario: (sessionId) => _post(`/demo/advance/${encodeURIComponent(sessionId)}`),
+
+  // ---- real-data endpoints ----
+  startRealSession: () => _post('/real/session'),
+  ingestReal: (rows) => _post('/real/ingest', { rows }),
+  getRealTrajectory: () => _get('/real/trajectory'),
+  listRealDatasets: () => _get('/real/datasets'),
 };
 
 /**

@@ -29,6 +29,7 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 import numpy as np  # noqa: E402
+import pandas as pd  # noqa: E402
 
 from member2_temporal.src import data_loader, model as m2_model  # noqa: E402
 from member2_temporal.src.features import (  # noqa: E402
@@ -42,28 +43,59 @@ from member2_temporal.src.features import (  # noqa: E402
 MODELS_DIR = m2_model.MODELS_DIR
 
 
-def _load_clean_features():
-    """Features from data/synthetic/ if available, else the fallback generator.
+def _clean_sources():
+    """(label, DataFrame) pairs — REAL data first, then M4/fallback.
 
-    Threshold calibration happens on WINDOW-MEAN scores, so the clean holdout
-    must contain enough windows (~200) for a stable tail estimate.
+    Threshold calibration happens on WINDOW-AGG scores, so each source needs
+    enough rows for a stable tail; sources are split 80/20 before feature
+    extraction so rolling windows never span two sources.
     """
+    srcs = []
+    real = data_loader._coerce("data/real")
+    real_files = (sorted(real.glob("*.parquet")) + sorted(real.glob("*.csv"))) if real.exists() else []
+    frames = []
+    for f in real_files:
+        try:
+            frames.append(data_loader.load_data(f))
+        except Exception as exc:
+            print(f"[train] skipping {f.name}: {exc}")
+    if frames:
+        df = pd.concat(frames, ignore_index=True)
+        names = ", ".join(f.name for f in real_files)
+        srcs.append((f"REAL data: data/real ({names}, {len(df)} rows)", df))
+
     synth = data_loader._coerce("data/synthetic")
     files = sorted(synth.glob("*.parquet")) + sorted(synth.glob("*.csv")) if synth.exists() else []
     if files:
         clean = data_loader.load_synthetic_directory(synth)
-        source = f"Member 4 data: {synth} ({len(files)} file(s), {len(clean)} rows)"
+        srcs.append((f"Member 4 data: {synth} ({len(files)} file(s), {len(clean)} rows)", clean))
     else:
         from member2_temporal.src.fallback_data import make_normal
-        clean = make_normal(n=48_000)
-        source = "FALLBACK generator (member2_temporal/src/fallback_data.py) — data/synthetic/ is empty"
-    clean = clean.dropna(subset=["timestamp"]).reset_index(drop=True)
-    # split before/after so the model never sees the rows it will be calibrated on
-    split = int(len(clean) * 0.8)
-    train = extract_temporal_features(clean.iloc[:split].reset_index(drop=True))
-    holdout = extract_temporal_features(clean.iloc[split:].reset_index(drop=True))
-    print(f"[train] clean source: {source}")
-    print(f"[train] train rows: {len(train)}, clean holdout rows: {len(holdout)} "
+        srcs.append(("FALLBACK generator (member2_temporal/src/fallback_data.py) — data/synthetic/ is empty",
+                     make_normal(n=48_000)))
+    return srcs
+
+
+def _load_clean_features():
+    """Features from every clean source (real data preferred), 80/20 per source."""
+    trains, holdouts = [], []
+    for label, clean in _clean_sources():
+        clean = clean.dropna(subset=["timestamp"]).reset_index(drop=True)
+        if len(clean) < 50:
+            print(f"[train] source too small, skipped: {label} ({len(clean)} rows)")
+            continue
+        # split before/after so the model never sees the rows it will be calibrated on
+        split = int(len(clean) * 0.8)
+        part_train = clean.iloc[:split].reset_index(drop=True)
+        part_hold = clean.iloc[split:].reset_index(drop=True)
+        trains.append(extract_temporal_features(part_train))
+        holdouts.append(extract_temporal_features(part_hold))
+        print(f"[train] clean source: {label}")
+        print(f"[train]   -> train rows: {len(part_train)}, clean holdout rows: {len(part_hold)} "
+              f"(~{len(part_hold) // 50} calibration windows)")
+    train = pd.concat(trains, ignore_index=True)
+    holdout = pd.concat(holdouts, ignore_index=True)
+    print(f"[train] TOTAL train rows: {len(train)}, clean holdout rows: {len(holdout)} "
           f"(~{len(holdout) // 50} calibration windows)")
     return train, holdout
 

@@ -12,6 +12,8 @@ data/raw/*
 data/synthetic/*
 data/attacks/*
 data/processed/*
+data/real/*
+!data/real/.gitkeep
 models/**/*.pkl
 !data/**/.gitkeep
 !models/**/.gitkeep
