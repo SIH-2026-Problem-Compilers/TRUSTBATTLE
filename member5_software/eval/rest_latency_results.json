@@ -1,0 +1,47 @@
+{
+  "/health": {
+    "status": 200,
+    "n": 200,
+    "mean_ms": 10.4,
+    "p50_ms": 6.11,
+    "p95_ms": 26.88,
+    "p99_ms": 29.31,
+    "max_ms": 45.0
+  },
+  "/api/v1/trust/current": {
+    "status": 200,
+    "n": 200,
+    "mean_ms": 39.18,
+    "p50_ms": 12.56,
+    "p95_ms": 178.19,
+    "p99_ms": 217.21,
+    "max_ms": 243.1
+  },
+  "/api/v1/trust/history?sensor_id=&limit=200": {
+    "status": 200,
+    "n": 200,
+    "mean_ms": 71.46,
+    "p50_ms": 38.64,
+    "p95_ms": 186.96,
+    "p99_ms": 325.11,
+    "max_ms": 416.98
+  },
+  "/api/v1/trajectory": {
+    "status": 200,
+    "n": 200,
+    "mean_ms": 24.85,
+    "p50_ms": 11.35,
+    "p95_ms": 103.7,
+    "p99_ms": 159.96,
+    "max_ms": 250.81
+  },
+  "/api/v1/alerts?limit=50": {
+    "status": 200,
+    "n": 200,
+    "mean_ms": 33.19,
+    "p50_ms": 25.67,
+    "p95_ms": 97.7,
+    "p99_ms": 107.25,
+    "max_ms": 123.94
+  }
+}

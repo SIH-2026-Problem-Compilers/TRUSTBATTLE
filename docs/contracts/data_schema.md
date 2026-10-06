@@ -25,6 +25,12 @@
 | `label` | int64 | — | `0=normal`, `1=gnss_spoof`, `2=replay`, `3=telemetry_manip`, `4=network_anomaly`, `5=sensor_malfunction`, `6=cross_sensor_conflict` |
 | `attack_start` | int64 | — | `1` if row is inside an injected attack window |
 
+### 1.1 Row structure & label semantics (CR #3, APPROVED 2026-10-06)
+
+- **Canonical files are fused platform rows.** `data/synthetic/uav_normal_v1.parquet` and `data/attacks/scenario_*.parquet` carry **one row = one 10 Hz observation tick** with the full §1 field set and a single fused platform id: `sensor_id='uav1'`. All M1/M2 dt / sequence-continuity and 50-row ≈ 5 s window logic assumes this fused 10 Hz layout.
+- **Per-sensor streams are a variant, not canonical.** The per-sensor layout (`uav1_gnss`/`uav1_imu`/`uav1_visual`/`uav1_net` at their own rates) ships as `member4_cyber/scenarios/uav_normal_v1_streams.parquet` for M5/future use — **not** in `data/synthetic/` (M1's `load_synthetic_directory` concatenates every file there; interleaved multi-rate rows would break sequence/timestamp semantics). A v1.1 streams migration with per-sensor grouping helpers can be proposed separately.
+- **`attack_start` / `label` are window-level marks.** Every row inside an injected attack window carries `attack_start=1` **and** the scenario's label (e.g. `1` for the whole GNSS-spoof window); rows outside carry `attack_start=0` and `label=0`. Ground-truth CSVs (`scenario_*_ground_truth.csv`) use the same window-level convention.
+
 ## 2. Inter-Module Message (JSON — what modules pass to each other)
 
 ```json

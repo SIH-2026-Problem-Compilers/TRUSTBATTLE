@@ -4,7 +4,7 @@ import asyncio
 import json
 import sys
 from pathlib import Path
-from typing import Dict, Set
+from typing import Dict, Optional, Set
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
@@ -33,16 +33,30 @@ async def ws_live(websocket: WebSocket, session_id: str = "default") -> None:
     sleep_s = settings.ws_sleep_s / max(speed, 0.01)
 
     try:
-        started = service.start_attack_scenario("gnss_spoof")
-        sid = started["session_id"]
+        # Play whatever scenario the dashboard selected (default: gnss_spoof).
+        # The service bumps an epoch on every scenario selection; when it
+        # changes we reopen the session so the stream follows the buttons
+        # instead of a hard-coded scenario.
+        sid: Optional[str] = None
+        epoch: Optional[int] = None
 
         while True:
+            state = getattr(service, "ws_stream_state", None)
+            if callable(state):
+                scenario, ep = state()
+            else:  # pragma: no cover - services always implement it now
+                scenario, ep = "gnss_spoof", 0
+
+            if sid is None or ep != epoch:
+                started = service.start_ws_session(scenario)
+                sid = started["session_id"]
+                epoch = ep
+
             msg = service.advance_playback(sid)
             if msg is None:
-                # End of scenario; pause briefly then restart loop for continuous stream
+                # End of scenario; pause briefly then reopen for continuous stream
                 await asyncio.sleep(2.0)
-                started = service.start_attack_scenario("gnss_spoof")
-                sid = started["session_id"]
+                sid = None
                 continue
 
             payload = msg.model_dump(mode="json", by_alias=True)

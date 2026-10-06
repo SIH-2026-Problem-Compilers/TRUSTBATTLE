@@ -9,6 +9,9 @@ const SENSOR_LABELS = {
 };
 
 export default function SensorStatusCards({ trust }) {
+  // Per-sensor values shown here are CURRENT observation trust (dynamic),
+  // not historical sensor reliability — see TrustGauge for the reliability
+  // baseline. Fallback only fires when the backend omits the field.
   const st = trust?.sensor_trust || {};
   const sw = trust?.sensor_weights || {};
   const reliability = trust?.sensor_reliability ?? 94;

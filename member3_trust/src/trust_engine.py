@@ -53,7 +53,7 @@ The module imports with zero side effects.
 from __future__ import annotations
 
 import math
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional
 
 import numpy as np
 
@@ -317,7 +317,9 @@ def compute_trust(scores: Dict[str, float], history: Optional[List[Any]] = None,
                    "consensus_trust": 0–100 (weighted-mean diagnostic)},
          "alert": {"level": "GREEN|AMBER|RED", "message": str,
                    "possible_causes": [...], "recommended_action": str},
-         "evidence": [{"check", "pass", "detail"}, ...]   (§15 explainability)}
+         "evidence": [{"check", "pass", "detail"}, ...]   (§15 explainability),
+         "scores": {schema §2 scores actually used, including any derived
+                   cross_sensor_agreement}}
     """
     doc = load_trust_weights()
     cfg = trust_settings()
@@ -456,4 +458,8 @@ def compute_trust(scores: Dict[str, float], history: Optional[List[Any]] = None,
         },
         "alert": alert,
         "evidence": evidence,
+        # effective scores used for this call — includes values derived here
+        # (e.g. cross_sensor_agreement from *observations*) so callers can
+        # surface them in the schema §2 scores block
+        "scores": scores,
     }

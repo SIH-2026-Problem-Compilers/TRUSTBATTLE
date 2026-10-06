@@ -65,9 +65,15 @@ def score_temporal(window_df) -> Dict[str, Any]:
 
 
 # ---- Member 3: Trust Engine & Fusion --------------------------------------
-def compute_trust(scores: Dict[str, float], history: List[Dict[str, Any]]) -> Dict[str, Any]:
-    """M3: scores dict -> {"trust": {...}, "alert": {...}} per data_schema.md §2."""
-    return _call("compute_trust", scores, history)
+def compute_trust(scores: Dict[str, float], history: List[Dict[str, Any]],
+                  observations: Any = None) -> Dict[str, Any]:
+    """M3: scores dict -> {"trust": {...}, "alert": {...}} per data_schema.md §2.
+
+    ``observations`` is M3's additive optional third parameter (per-sensor
+    position/velocity estimates used to derive cross-sensor agreement, §11).
+    The two-argument contract call stays valid; ``None`` means "not supplied".
+    """
+    return _call("compute_trust", scores, history, observations=observations)
 
 
 def fuse(observations, trust_scores) -> Dict[str, Any]:

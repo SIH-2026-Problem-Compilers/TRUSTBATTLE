@@ -19,7 +19,7 @@ const REAL_SCENARIOS = [
 export default function ScenarioControl({ active, onSelect, wsConnected }) {
   return (
     <div className="scenario-control">
-      <div className="scenario-label">Scenario Playback</div>
+      <div className="scenario-label">Scenario Playback — controlled simulation (not real battlefield data)</div>
       <div className="scenario-buttons">
         {SCENARIOS.map((s) => (
           <button
@@ -32,7 +32,7 @@ export default function ScenarioControl({ active, onSelect, wsConnected }) {
           </button>
         ))}
       </div>
-      <div className="scenario-label" style={{ marginTop: 8 }}>Real Data (model predicts live)</div>
+      <div className="scenario-label" style={{ marginTop: 8 }}>Real public GPS data — model predicts live</div>
       <div className="scenario-buttons">
         {REAL_SCENARIOS.map((s) => (
           <button

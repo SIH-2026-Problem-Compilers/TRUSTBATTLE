@@ -57,8 +57,9 @@ def run_observation(window_df) -> Dict[str, Any]:
     for stage, scorer in (("physical", interfaces.score_physical),
                           ("temporal", interfaces.score_temporal)):
         try:
-            message.setdefault("scores", {}).update(scorer(window_df)["scores"])
-            message.setdefault("evidence", []).extend(scorer(window_df).get("evidence", []))
+            out = scorer(window_df)  # one call: scores + evidence from the same run
+            message.setdefault("scores", {}).update(out.get("scores", {}))
+            message.setdefault("evidence", []).extend(out.get("evidence", []))
         except interfaces.ModuleNotReadyError:
             message[f"{stage}_status"] = "module_not_ready"
 

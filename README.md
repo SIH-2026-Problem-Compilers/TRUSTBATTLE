@@ -442,9 +442,9 @@ py -m member3_trust.src.evaluate       # corruption sweep -> m3_evaluation.md + 
 py -m pytest member3_trust/tests -q
 
 # Whole repo test suite
-py -m pytest -q                         # currently 103 passed
+py -m pytest -q                         # currently 152 passed (incl. M4 + cross-module tests)
 
-# End-to-end (readiness check; full flow once M4 + pipeline wiring land)
+# End-to-end (M4 data -> M1+M2 -> M3 -> fusion; 16/16 acceptance checks)
 python integration/run_demo.py
 
 # M5 (once implemented)

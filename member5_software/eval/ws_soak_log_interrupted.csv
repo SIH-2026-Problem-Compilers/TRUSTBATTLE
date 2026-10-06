@@ -1,0 +1,17 @@
+kind,elapsed_s,frames,bytes,interval_avg_ms,interval_max_ms,rss_mb
+rss,4,0,0,,,140.0
+rss,66,211,1030575,,,88.5
+rss,128,436,2130435,,,96.8
+rss,191,662,3234075,,,77.7
+rss,256,817,3991643,,,90.4
+rss,321,917,4481047,,,98.2
+rss,389,1014,4954540,,,83.4
+rss,456,1109,5418906,,,79.0
+rss,522,1207,5898090,,,82.0
+rss,587,1317,6435767,,,91.9
+rss,651,1417,6923723,,,267.6
+rss,717,1505,7353833,,,190.7
+rss,781,1585,7744777,,,92.6
+rss,848,1690,8258220,,,83.4
+error,850,0,0,0,0,no close frame received or sent
+summary,{"duration_s": 1800, "connect_s": 4.3167, "first_frame_s": 4.3804, "frames": 1697, "bytes": 8292027, "avg_frame_bytes": 4886.3, "interval_avg_ms": 497.7, "interval_p95_ms": 866.4, "interval_max_ms": 8260.1, "fps": 0.943, "errors": 1, "rss_first_mb": 140.0, "rss_last_mb": 83.4, "rss_max_mb": 267.6}

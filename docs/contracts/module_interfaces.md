@@ -38,7 +38,7 @@ M4 (data+attacks) ──▶ M1 (physical) ──┐
 
 | Item | Path / Name | Format |
 |---|---|---|
-| Trust engine entrypoint | `member3_trust/src/trust_engine.py` | Python import: `compute_trust(scores: dict, history) -> dict` |
+| Trust engine entrypoint | `member3_trust/src/trust_engine.py` | Python import: `compute_trust(scores: dict, history, observations=None) -> dict` — `observations` is an **additive optional** kwarg (per-sensor estimates → derives `cross_sensor_agreement`, §11); the 2-arg call stays valid. Return dict: `trust`, `alert`, `evidence` (§2, unchanged) **plus additive `scores`** = the effective §2 scores actually used incl. derived `cross_sensor_agreement` (CR #4, APPROVED 2026-10-06) |
 | Fusion entrypoint | `member3_trust/src/fusion.py` | Python import: `fuse(observations, trust_scores) -> state_estimate` |
 | Config | `models/trust/trust_weights.json`, `models/trust/fusion_config.json` | JSON |
 | Score output | `trust.observation_trust` (0–100), `trust.sensor_weights`, `trust.state_estimate` | `data_schema.md` §2 |

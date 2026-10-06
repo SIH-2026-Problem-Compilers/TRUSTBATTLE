@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-import asyncio
 import random
 import sys
+import threading
 import time
 import uuid
 from abc import ABC, abstractmethod
@@ -14,6 +14,36 @@ from pydantic import BaseModel
 REPO_ROOT = Path(__file__).resolve().parents[3]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
+
+# One observation window in rows (10 Hz -> 5 s), shared by the pipeline
+# playback sessions and the integration/demo code.
+WINDOW = 50
+
+# Scenario key -> dataset file (schema §5 pairs under data/). Keys match the
+# dashboard ScenarioControl buttons and POST /api/v1/demo/attack/{scenario}.
+SCENARIO_DATASETS = {
+    "normal": "synthetic/uav_normal_v1.parquet",
+    "gnss_spoof": "attacks/scenario_gnss_spoof.parquet",
+    "replay": "attacks/scenario_replay.parquet",
+    "telemetry_manip": "attacks/scenario_telemetry_manipulation.parquet",
+    "network_anomaly": "attacks/scenario_network_anomaly.parquet",
+    "sensor_malfunction": "attacks/scenario_sensor_malfunction.parquet",
+    "cross_sensor_conflict": "attacks/scenario_cross_sensor_conflict.parquet",
+    "mixed_c05": "attacks/scenario_mixed_c05.parquet",
+    "mixed_c10": "attacks/scenario_mixed_c10.parquet",
+    "mixed_c20": "attacks/scenario_mixed_c20.parquet",
+    "mixed_c30": "attacks/scenario_mixed_c30.parquet",
+}
+
+_warned: set = set()
+
+
+def _warn_once(key: str, text: str) -> None:
+    """Log a pipeline warning once instead of swallowing exceptions silently."""
+    if key in _warned:
+        return
+    _warned.add(key)
+    print(f"[trust_service] {text}", file=sys.stderr)
 
 from backend.app.models.schemas import (  # noqa: E402
     AlertData,
@@ -80,6 +110,10 @@ class MockTrustService(TrustServiceABC):
         self._alerts: List[AlertItem] = []
         self._playbacks: Dict[str, PlaybackSession] = {}
         self._demo_story: List[Dict[str, Any]] = self._build_demo_story()
+        # scenario the /ws/live stream should play + epoch (bumped on every
+        # scenario selection so a connected client can pick the change up)
+        self._ws_scenario: str = "gnss_spoof"
+        self._ws_epoch: int = 0
         self._seed_initial_history()
 
     # ------------------------------------------------------------------
@@ -302,6 +336,13 @@ class MockTrustService(TrustServiceABC):
         )
 
     def start_attack_scenario(self, scenario: str) -> Dict[str, Any]:
+        # Scenario selection changes what /ws/live streams (the mock story
+        # itself is scenario-independent).
+        self._ws_scenario = scenario
+        self._ws_epoch += 1
+        return self._open_session(scenario)
+
+    def _open_session(self, scenario: str) -> Dict[str, Any]:
         # For mock service: always play back the demo story regardless of scenario name
         sid = uuid.uuid4().hex[:10]
         session = PlaybackSession(
@@ -315,7 +356,15 @@ class MockTrustService(TrustServiceABC):
         )
         self._playbacks[sid] = session
         return {"session_id": sid, "scenario": scenario,
-                "n_messages": len(session.messages)}
+                "n_messages": len(session.messages), "source": "mock_story"}
+
+    def ws_stream_state(self):
+        """(scenario, epoch) the /ws/live stream should play."""
+        return self._ws_scenario, self._ws_epoch
+
+    def start_ws_session(self, scenario: str) -> Dict[str, Any]:
+        """Open a playback session for /ws/live without bumping the epoch."""
+        return self._open_session(scenario)
 
     def stop_playback(self, session_id: str) -> None:
         s = self._playbacks.get(session_id)
@@ -350,15 +399,41 @@ class RealTrustService(TrustServiceABC):
         self._alerts: List[AlertItem] = []
         self._playbacks: Dict[str, PlaybackSession] = {}
         self._ready: bool = self._try_init_pipeline()
+        # pipeline-backed playback: scenario datasets streamed window-by-window
+        # through M1+M2 -> M3 -> fusion (no fabricated values on this path)
+        self._pipeline_sessions: Dict[str, Dict[str, Any]] = {}
+        self._sessions_by_scenario: Dict[str, str] = {}   # scenario -> open session_id
+        self._scenario_dfs: Dict[str, Any] = {}   # df refs kept alive (stable id() for M3 IMU state)
+        self._traj_cache: Dict[str, TrajectoryResponse] = {}
+        self._ws_scenario: str = "gnss_spoof"
+        self._ws_epoch: int = 0
+        self._default_sid: Optional[str] = None
+        self._lock = threading.Lock()
 
     def _try_init_pipeline(self) -> bool:
         try:
             from integration.pipeline import register_available_implementations
             from integration import interfaces  # noqa: F401
             register_available_implementations()
-            return True
-        except Exception:
+        except Exception as exc:
+            _warn_once("pipeline_init", f"integration pipeline unavailable: {exc}")
             return False
+        # Member imports fail SILENTLY inside register_available_implementations
+        # (ImportError is swallowed per module), so a half-installed interpreter
+        # (e.g. uvicorn running where pandas/scikit-learn are missing) would
+        # otherwise look "ready" and crash mid-request. Real mode only when
+        # every stage actually registered.
+        from integration import interfaces
+        missing = sorted(interfaces.MISSING)
+        if missing:
+            _warn_once(
+                "pipeline_missing",
+                "pipeline stages not registered: " + ", ".join(missing)
+                + f" — install requirements.txt into this interpreter "
+                  f"({sys.executable}); serving the labelled mock fallback instead",
+            )
+            return False
+        return True
 
     # ------------------------------------------------------------------
     def _push_message(self, msg: TrustMessage) -> TrustMessage:
@@ -379,63 +454,169 @@ class RealTrustService(TrustServiceABC):
         return msg
 
     # ------------------------------------------------------------------
-    def _run_pipeline(self) -> Optional[TrustMessage]:
+    # pipeline-backed scenario sessions (real M1+M2 -> M3 computation)
+    # ------------------------------------------------------------------
+    def _scenario_df(self, scenario: str) -> Optional[Any]:
+        """Dataset for *scenario* (cached); None when the file is missing."""
+        if scenario not in SCENARIO_DATASETS:
+            return None
+        df = self._scenario_dfs.get(scenario)
+        if df is None:
+            path = settings.data_dir / SCENARIO_DATASETS[scenario]
+            if not path.exists():
+                return None
+            try:
+                import pandas as pd
+                df = pd.read_parquet(path)
+            except Exception as exc:
+                _warn_once(f"load:{scenario}", f"could not read {path}: {exc}")
+                return None
+            self._scenario_dfs[scenario] = df
+        return df
+
+    @staticmethod
+    def _reset_imu() -> None:
+        """Restart M3's IMU dead-reckoning when a new playback pass begins."""
+        try:
+            from member3_trust.src.eval_scenarios import _reset_imu_state
+            _reset_imu_state()
+        except Exception as exc:  # pragma: no cover
+            _warn_once("imu_reset", f"IMU state reset failed: {exc}")
+
+    def _open_pipeline_session(self, scenario: str, loop: bool = True,
+                               allow_demo_fallback: bool = False) -> Optional[Dict[str, Any]]:
+        """Open (or reuse) a session streaming *scenario*'s dataset through the pipeline.
+
+        One session per scenario: the REST endpoint and /ws/live share it, so
+        the M3 IMU dead-reckoning state (keyed by df identity) is never driven
+        by two cursors at once. Nothing is precomputed — windows are scored on
+        advance, so scenario switches are instant. Returns None when the
+        pipeline or dataset is unavailable (caller falls back to the
+        clearly-labelled mock story).
+        """
         if not self._ready:
             return None
-        try:
-            from integration.pipeline import run_observation
-            from member3_trust.src import eval_scenarios
-            import pandas as pd
-
-            WINDOW = 50
-            if not hasattr(self, "_df"):
-                self._df, _ = eval_scenarios.make_spoof_scenario(n=3200, attack_start=1000, attack_end=1800)
-                self._cursor = 0
-                self._trust_history: List[Dict[str, Any]] = []
-
-            if self._cursor + WINDOW > len(self._df):
+        df = self._scenario_df(scenario)
+        name = scenario
+        source = "pipeline"
+        if df is None:
+            if not (loop and allow_demo_fallback):
                 return None
+            # default stream: M4 spoof dataset when present, else the M3 §22
+            # demo generator (clean -> spoof -> recovery)
+            name = "fallback_spoof_demo"
+            df = self._scenario_dfs.get(name)
+            if df is None:
+                try:
+                    from member3_trust.src import eval_scenarios
+                    df, _ = eval_scenarios.make_spoof_scenario(n=3200, attack_start=1000, attack_end=1800)
+                except Exception as exc:
+                    _warn_once("demo_df", f"scenario dataset unavailable: {exc}")
+                    return None
+                self._scenario_dfs[name] = df
+            source = "demo_generator"
+        existing = self._sessions_by_scenario.get(name)
+        if existing is not None and existing in self._pipeline_sessions:
+            st = self._pipeline_sessions[existing]
+            return {"session_id": existing, "scenario": name,
+                    "n_messages": max(1, len(st["df"]) // WINDOW), "source": source}
+        self._reset_imu()
+        sid = uuid.uuid4().hex[:10]
+        self._pipeline_sessions[sid] = {
+            "df": df, "scenario": name, "cursor": 0,
+            "trust_history": [], "loop": loop,
+        }
+        self._sessions_by_scenario[name] = sid
+        return {"session_id": sid, "scenario": name,
+                "n_messages": max(1, len(df) // WINDOW), "source": source}
 
-            window = self._df.iloc[self._cursor:self._cursor + WINDOW].reset_index(drop=True)
-            self._cursor += WINDOW
+    def _advance_pipeline(self, session_id: str) -> Optional[TrustMessage]:
+        """Score the session's next window through M1+M2 -> M3 -> fusion."""
+        st = self._pipeline_sessions.get(session_id)
+        if st is None:
+            return None
+        df = st["df"]
+        cursor = st["cursor"]
+        if cursor + WINDOW > len(df):
+            if not st["loop"]:
+                self._pipeline_sessions.pop(session_id, None)
+                return None
+            # wrap: restart the pass and M3's IMU dead-reckoning from row 0
+            cursor = 0
+            self._reset_imu()
+        st["cursor"] = cursor + WINDOW
+        window = df.iloc[cursor:cursor + WINDOW].reset_index(drop=True)
 
-            result = run_observation(window)
-            obs = eval_scenarios.sensor_observations(self._df,
-                                                     slice(self._cursor - WINDOW, self._cursor),
-                                                     rng_seed=1000 + self._cursor)
-            try:
-                from integration import interfaces
-                scores = result.get("scores", {})
-                trust_out = interfaces.compute_trust(scores, self._trust_history, observations=obs)
-                result.update(trust_out)
-                state = interfaces.fuse(obs, result.get("trust", {}))
-                result.setdefault("trust", {}).setdefault("state_estimate", {}).update(state)
-                self._trust_history.append(result)
-                if len(self._trust_history) > 200:
-                    self._trust_history = self._trust_history[-200:]
-            except Exception:
-                pass
+        from integration.pipeline import run_observation
+        from integration import interfaces
+        from member3_trust.src import eval_scenarios
 
-            msg = TrustMessage(
-                schema_version="1.0",
-                observation_id=f"obs_{self._cursor:06d}",
-                sensor_id=result.get("sensor_id") or "uav1_gnss",
-                timestamp=float(window["timestamp"].iloc[0]),
-                scores=Scores(**result.get("scores", {})),
-                evidence=[EvidenceItem(**e) for e in result.get("evidence", [])],
-                trust=TrustData(**result.get("trust", {})),
-                alert=AlertData(**result.get("alert", {})),
-            )
-            return self._push_message(msg)
-        except Exception:
+        result = run_observation(window)
+        obs = eval_scenarios.sensor_observations(df, slice(cursor, cursor + WINDOW),
+                                                 rng_seed=1000 + cursor)
+        trust_out = interfaces.compute_trust(result.get("scores", {}),
+                                             st["trust_history"], observations=obs)
+        # merge (a) M3's derived scores (e.g. cross_sensor_agreement) and
+        # (b) M3's evidence AFTER M1/M2's — nothing upstream is overwritten
+        result["scores"] = {**result.get("scores", {}), **trust_out.get("scores", {})}
+        result["evidence"] = list(result.get("evidence", [])) + list(trust_out.get("evidence", []))
+        result["trust"] = trust_out.get("trust", {})
+        result["alert"] = trust_out.get("alert", {})
+        try:
+            state = interfaces.fuse(obs, result["trust"])
+            result["trust"].setdefault("state_estimate", {}).update(state)
+        except Exception as exc:
+            _warn_once("fuse", f"fusion failed: {exc}")
+        st["trust_history"].append(trust_out)
+        if len(st["trust_history"]) > 200:
+            st["trust_history"] = st["trust_history"][-200:]
+
+        sensor_id = (str(window["sensor_id"].iloc[0])
+                     if "sensor_id" in window.columns else "uav1_gnss")
+        msg = TrustMessage(
+            schema_version="1.0",
+            observation_id=f"obs_{cursor:06d}",
+            sensor_id=sensor_id,
+            timestamp=float(window["timestamp"].iloc[0]),
+            scores=Scores(**result.get("scores", {})),
+            evidence=[EvidenceItem(**e) for e in result.get("evidence", [])],
+            trust=TrustData(**result.get("trust", {})),
+            alert=AlertData(**result.get("alert", {})),
+        )
+        return self._push_message(msg)
+
+    def _run_pipeline(self) -> Optional[TrustMessage]:
+        """Latest real pipeline message; seeds the default stream once."""
+        if not self._ready:
+            return None
+        if self._history:
+            return self._history[-1]
+        try:
+            opened = self._open_pipeline_session("gnss_spoof", loop=True,
+                                                 allow_demo_fallback=True)
+        except Exception as exc:
+            _warn_once("seed_open", f"default session open failed: {exc}")
+            return None
+        if opened is None:
+            return None
+        self._default_sid = opened["session_id"]
+        try:
+            with self._lock:
+                return self._advance_pipeline(self._default_sid)
+        except Exception as exc:
+            _warn_once("seed_advance", f"pipeline advance failed: {exc}")
             return None
 
     # ------------------------------------------------------------------
     def get_current_trust(self) -> TrustMessage:
+        """Latest real pipeline message (never mixes mock values in once the
+        pipeline has produced a real message)."""
         msg = self._run_pipeline()
-        if msg is None:
-            return self._mock.get_current_trust()
-        return msg
+        if msg is not None:
+            return msg
+        if self._history:
+            return self._history[-1]
+        return self._mock.get_current_trust()
 
     def get_trust_history(self, sensor_id: Optional[str] = None, limit: int = 500) -> List[TrustHistoryPoint]:
         src = self._history if self._ready else self._mock.get_trust_history(sensor_id, limit)
@@ -458,6 +639,8 @@ class RealTrustService(TrustServiceABC):
         for m in reversed(self._history):
             if m.observation_id == observation_id:
                 return list(m.evidence)
+        if self._ready:
+            return []  # never serve mock evidence for a real-mode observation id
         return self._mock.get_evidence(observation_id)
 
     def get_alerts(self, active_only: bool = True, limit: int = 100) -> List[AlertItem]:
@@ -467,6 +650,8 @@ class RealTrustService(TrustServiceABC):
                 last_ts = alerts[0].timestamp
                 alerts = [a for a in alerts if a.timestamp >= last_ts - 30.0]
             return alerts[:limit]
+        if self._ready:
+            return []
         return self._mock.get_alerts(active_only, limit)
 
     def get_trajectory(self, scenario: Optional[str] = None) -> TrajectoryResponse:
@@ -479,50 +664,81 @@ class RealTrustService(TrustServiceABC):
                 pass
         if not self._ready:
             return self._mock.get_trajectory(scenario)
-        try:
-            from member3_trust.src import eval_scenarios
-            from member3_trust.src.fusion import fuse, fuse_normal
-            from member3_trust.src.trust_engine import compute_trust
-            from integration import interfaces
 
-            WINDOW = 50
-            df, _ = eval_scenarios.make_spoof_scenario(n=1600, attack_start=500, attack_end=900)
-            trust_hist: List[Dict[str, Any]] = []
-            true_t, rep_t, fus_t = [], [], []
-            for w0 in range(0, len(df) - WINDOW + 1, WINDOW):
-                window = df.iloc[w0:w0 + WINDOW].reset_index(drop=True)
-                scores = {}
-                for scorer in (interfaces.score_physical, interfaces.score_temporal):
-                    try:
-                        scores.update(scorer(window)["scores"])
-                    except Exception:
-                        pass
-                obs = eval_scenarios.sensor_observations(df, slice(w0, w0 + WINDOW), rng_seed=2000 + w0)
-                tres = compute_trust(scores, trust_hist, observations=obs)
-                trust_hist.append(tres)
-                est = fuse(obs, tres["trust"])
-                tlat = float(window["latitude"].mean())
-                tlon = float(window["longitude"].mean())
-                rlat = tlat
-                rlon = tlon
+        key = scenario or "gnss_spoof"
+        cached = self._traj_cache.get(key)
+        if cached is not None:
+            return cached
+        try:
+            resp = self._build_trajectory(key)
+            if resp is not None:
+                self._traj_cache[key] = resp
+                return resp
+        except Exception as exc:
+            _warn_once(f"traj:{key}", f"trajectory build failed for {key}: {exc}")
+        return self._mock.get_trajectory(scenario)
+
+    def _build_trajectory(self, key: str) -> Optional[TrajectoryResponse]:
+        """True/reported/fused trajectories for *key*, computed through M1+M2 -> M3.
+
+        True positions come from M4's clean base track (the scenarios are
+        row-aligned with ``data/synthetic/uav_normal_v1.parquet`` — parquet
+        drops the truth attrs, so they are re-attached from the clean track).
+        Returns None when the dataset is unavailable (caller falls back).
+        """
+        df = self._scenario_df(key)
+        if df is None:
+            return None
+        import numpy as np
+        from integration import interfaces
+        from member3_trust.src import eval_scenarios
+        from member3_trust.src.fusion import fuse
+        from member3_trust.src.trust_engine import compute_trust
+
+        # Truth position: parquet drops DataFrame.attrs, so regenerate the
+        # seed-42 clean track M4 built every scenario from (row-aligned; the
+        # attack functions only modify reported fields — build_datasets.py).
+        truth_lat = truth_lon = None
+        try:
+            from member4_cyber.src.generate_data import make_clean_dataset
+            base = make_clean_dataset()
+            if len(base) >= len(df):
+                truth_lat = base.attrs.get("truth_latitude")
+                truth_lon = base.attrs.get("truth_longitude")
+        except Exception as exc:
+            _warn_once("truth", f"truth reconstruction unavailable: {exc}")
+
+        trust_hist: List[Dict[str, Any]] = []
+        true_t, rep_t, fus_t = [], [], []
+        for w0 in range(0, len(df) - WINDOW + 1, WINDOW):
+            window = df.iloc[w0:w0 + WINDOW].reset_index(drop=True)
+            scores: Dict[str, float] = {}
+            for scorer in (interfaces.score_physical, interfaces.score_temporal):
                 try:
-                    tlat = float(df.attrs["truth_latitude"][w0:w0 + WINDOW].mean())
-                    tlon = float(df.attrs["truth_longitude"][w0:w0 + WINDOW].mean())
+                    out = scorer(window)
+                    scores.update(out.get("scores", {}))
                 except Exception:
                     pass
-                ts = float(window["timestamp"].iloc[0])
+            obs = eval_scenarios.sensor_observations(df, slice(w0, w0 + WINDOW), rng_seed=2000 + w0)
+            tres = compute_trust(scores, trust_hist, observations=obs)
+            trust_hist.append(tres)
+            est = fuse(obs, tres["trust"])
+            ts = float(window["timestamp"].iloc[0])
+            rlat = float(window["latitude"].mean())
+            rlon = float(window["longitude"].mean())
+            if truth_lat is not None and truth_lon is not None:
+                tlat = float(np.mean(truth_lat[w0:w0 + WINDOW]))
+                tlon = float(np.mean(truth_lon[w0:w0 + WINDOW]))
                 true_t.append(TrajectoryPoint(timestamp=ts, lat=tlat, lon=tlon))
-                rep_t.append(TrajectoryPoint(timestamp=ts, lat=rlat, lon=rlon))
-                fus_t.append(TrajectoryPoint(timestamp=ts, lat=float(est["lat"]), lon=float(est["lon"]),
-                                             velocity=float(est.get("velocity", 0))))
-            return TrajectoryResponse(
-                true_trajectory=true_t,
-                reported_trajectory=rep_t,
-                fused_trajectory=fus_t,
-                scenario=scenario or "m4_mixed_spoof",
-            )
-        except Exception:
-            return self._mock.get_trajectory(scenario)
+            rep_t.append(TrajectoryPoint(timestamp=ts, lat=rlat, lon=rlon))
+            fus_t.append(TrajectoryPoint(timestamp=ts, lat=float(est["lat"]), lon=float(est["lon"]),
+                                         velocity=float(est.get("velocity", 0))))
+        return TrajectoryResponse(
+            true_trajectory=true_t,
+            reported_trajectory=rep_t,
+            fused_trajectory=fus_t,
+            scenario=key,
+        )
 
     def start_attack_scenario(self, scenario: str) -> Dict[str, Any]:
         if scenario.startswith("real_"):
@@ -547,25 +763,42 @@ class RealTrustService(TrustServiceABC):
                 self._playbacks[sid] = session
                 return {"session_id": sid, "scenario": scenario,
                         "n_messages": len(msgs), "source": "real_data"}
-            # real data not available — fall through to the mock story
-        if not self._ready:
-            return self._mock.start_attack_scenario(scenario)
-        sid = uuid.uuid4().hex[:10]
-        # Use the mock story structure for now (WS playback from pipeline run one at a time is heavy)
-        session = PlaybackSession(
-            session_id=sid,
-            scenario=scenario,
-            start_time=time.time(),
-            speed=settings.ws_playback_speed,
-            is_active=True,
-            current_index=0,
-            messages=self._mock._demo_story,
-        )
-        self._playbacks[sid] = session
-        return {"session_id": sid, "scenario": scenario,
-                "n_messages": len(session.messages)}
+            # real data not available — fall through to the scenario path below
+        # Remember what /ws/live should stream; the epoch bump tells a
+        # connected client to reopen its session for the new scenario.
+        self._ws_scenario = scenario
+        self._ws_epoch += 1
+        try:
+            opened = self._open_pipeline_session(scenario)
+        except Exception as exc:
+            _warn_once(f"open:{scenario}", f"pipeline session open failed: {exc}")
+            opened = None
+        if opened is not None:
+            return opened
+        # Pipeline/dataset unavailable: labelled mock-story fallback only.
+        return self._mock.start_attack_scenario(scenario)
+
+    def ws_stream_state(self):
+        """(scenario, epoch) the /ws/live stream should play."""
+        return self._ws_scenario, self._ws_epoch
+
+    def start_ws_session(self, scenario: str) -> Dict[str, Any]:
+        """Open a playback session for /ws/live without bumping the epoch."""
+        try:
+            opened = self._open_pipeline_session(scenario)
+        except Exception as exc:
+            _warn_once(f"open:{scenario}", f"pipeline session open failed: {exc}")
+            opened = None
+        if opened is not None:
+            return opened
+        return self._mock.start_ws_session(scenario)
 
     def stop_playback(self, session_id: str) -> None:
+        if session_id == self._default_sid:
+            return  # keep the seeded default stream alive
+        st = self._pipeline_sessions.pop(session_id, None)
+        if st is not None and self._sessions_by_scenario.get(st["scenario"]) == session_id:
+            self._sessions_by_scenario.pop(st["scenario"], None)
         s = self._playbacks.get(session_id)
         if s:
             s.is_active = False
@@ -575,6 +808,14 @@ class RealTrustService(TrustServiceABC):
         return self._playbacks.get(session_id) or self._mock.get_playback(session_id)
 
     def advance_playback(self, session_id: str) -> Optional[TrustMessage]:
+        if session_id in self._pipeline_sessions:
+            try:
+                with self._lock:
+                    return self._advance_pipeline(session_id)
+            except Exception as exc:
+                _warn_once("advance", f"pipeline advance failed: {exc}")
+                self._pipeline_sessions.pop(session_id, None)
+                return None
         s = self._playbacks.get(session_id)
         if s and s.is_active:
             if s.current_index >= len(s.messages):

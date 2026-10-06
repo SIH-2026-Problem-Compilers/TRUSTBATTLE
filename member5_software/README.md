@@ -58,5 +58,5 @@ Read + call into: `integration/interfaces.py`, `integration/pipeline.py` (never 
 
 ## Remaining work (low priority)
 
-- M5-specific evaluation report `docs/reports/m5_evaluation.md` (latency, memory, browser perf on 1 h playback).
+- ~~M5-specific evaluation report `docs/reports/m5_evaluation.md`~~ → **DONE 2026-10-06**: REST latency (200 req/endpoint under load), 30-min WS soak (8015 frames / 0 errors), backend RSS + browser JS-heap/DOM memory; tooling in `member5_software/eval/`. Backlog: full 1 h browser soak, browser process-level memory, `trust/history` pagination.
 - Auth / RBAC for deployment (not MVP scope).

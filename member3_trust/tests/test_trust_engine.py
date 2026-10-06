@@ -16,7 +16,12 @@ from member3_trust.src.trust_engine import (
 def test_output_shape(clean_scores, clean_obs):
     """trust/alert blocks carry exactly the contract keys with valid values."""
     out = compute_trust(clean_scores, [], observations=clean_obs)
-    assert set(out) == {"trust", "alert", "evidence"}
+    # "scores" is the effective schema-§2 scores block actually used (includes
+    # values derived inside the engine, e.g. cross_sensor_agreement)
+    assert set(out) == {"trust", "alert", "evidence", "scores"}
+    assert "cross_sensor_agreement" in out["scores"], \
+        "derived cross-sensor agreement must be surfaced for callers"
+    assert 0.0 <= out["scores"]["cross_sensor_agreement"] <= 1.0
     trust = out["trust"]
     for key in ("observation_trust", "sensor_reliability", "sensor_weights",
                 "sensor_trust", "consensus_trust"):

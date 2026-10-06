@@ -198,6 +198,7 @@ class PhysicalScorer:
             )
 
         anomaly = self.model_anomaly_score(feat_df)
+        model_used = anomaly is not None
         if anomaly is None:
             # No trained artifacts yet: fall back to a transparent weighted
             # normalized-disagreement score so scoring always works.
@@ -207,8 +208,26 @@ class PhysicalScorer:
         a = np.clip(anomaly, 0.0, 1.0)
         anomaly_val = float(np.clip(np.percentile(a, 90), 0.0, 1.0))
 
+        # Severity that feeds physical_consistency:
+        #   max(transparent heuristic disagreement severity,
+        #       model excess ABOVE its calibrated alert threshold)
+        # The heuristic keeps the pre-model behaviour and clean baseline
+        # unchanged; the IsolationForest adds evidence whenever its score is
+        # more alarmed than the heuristic — above ``m1_threshold_`` (set for
+        # the configured FPR target during training), where the model output
+        # is a calibrated detection rather than clean-data noise. This is what
+        # makes the trained model influence downstream trust (M3) instead of
+        # only the raw anomaly_physical field.
+        severity = float(np.clip(self._heuristic_anomaly(feat_df), 0.0, 1.0))
+        if model_used:
+            thr = float(getattr(self._model, "m1_threshold_", 0.5) or 0.5)
+            thr = min(max(thr, 0.0), 1.0)
+            model_sev = float(np.clip((anomaly_val - thr) / max(1.0 - thr, 1e-6),
+                                      0.0, 1.0))
+            severity = max(severity, model_sev)
+
         ev = self.physics_evidence(feat_df)
-        consistency = self._consistency_from_evidence(ev, feat_df)
+        consistency = self._consistency_from_evidence(ev, severity)
 
         return {
             "scores": {
@@ -245,16 +264,20 @@ class PhysicalScorer:
         per_row = np.clip(np.mean(np.vstack(parts), axis=0), 0.0, 1.0)
         return np.clip(float(np.percentile(per_row, 90)), 0.0, 1.0)
 
-    def _consistency_from_evidence(self, ev: List[Dict[str, Any]], feat_df: pd.DataFrame) -> float:
-        """physical_consistency from failing checks + continuous severity.
+    def _consistency_from_evidence(self, ev: List[Dict[str, Any]],
+                                   anomaly_val: float) -> float:
+        """physical_consistency from failing checks + anomaly severity.
 
         Weight: each failing check costs 0.15, then the score is blended with
-        the continuous normalized-disagreement severity (bounded below by 0.05).
+        the continuous severity (heuristic disagreement, raised to the model's
+        calibrated excess when the IsolationForest is more alarmed — see
+        :meth:`score`; bounded below by 0.05). Identical blending to the M2
+        temporal scorer so both ML outputs reach the M3 trust engine through
+        their consistency score.
         """
         n_fail = sum(1 for e in ev if not e["pass"])
         base = 1.0 - 0.15 * n_fail
-        sev = float(np.clip(self._heuristic_anomaly(feat_df).mean(), 0.0, 1.0))
-        return float(max(0.05, 0.5 * base + 0.5 * (1.0 - sev)))
+        return float(max(0.05, 0.5 * base + 0.5 * (1.0 - float(anomaly_val))))
 
 
 _MODULE_SCORER: Optional[PhysicalScorer] = None

@@ -13,7 +13,7 @@
 ## 2. Final-demo story (§22, DoD #3)
 
 - start trust **93.5** → min under spoofing **5.0** (RED) → recovers to **93.0**. All demo acceptance checks passed: `6/7`.
-- Per-sensor trust at attack peak: gnss 5, imu 95, visual 97, net 97 — the suspect source (GNSS) collapses while independent sources keep high trust.
+- Per-sensor trust at attack peak: gnss 5, imu 95, visual 96, net 97 — the suspect source (GNSS) collapses while independent sources keep high trust.
 - GNSS fusion weight 0.249 → 0.017 (§14 influence reduction).
 ![demo trust curve](m3_graphs/m3_demo_trust_curve.png)
 
@@ -22,10 +22,10 @@
 | Corruption % | Windows | Attack win | Precision | Recall | F1 | FPR | Latency (s) | Min trust |
 |---|---|---|---|---|---|---|---|---|
 | 0 | 120 | 60 | 1.000 | 0.983 | 0.992 | 0.000 | 5.0 | 5.0 |
-| 5 | 120 | 6 | 0.083 | 0.500 | 0.143 | 0.289 | 0.0 | 19.9 |
-| 10 | 120 | 12 | 0.146 | 0.583 | 0.233 | 0.380 | 0.0 | 5.0 |
-| 20 | 120 | 24 | 0.271 | 0.667 | 0.386 | 0.448 | 0.0 | 5.0 |
-| 30 | 120 | 36 | 0.394 | 0.722 | 0.510 | 0.476 | 0.0 | 5.0 |
+| 5 | 120 | 6 | 0.079 | 0.500 | 0.136 | 0.307 | 0.0 | 19.9 |
+| 10 | 120 | 12 | 0.143 | 0.583 | 0.230 | 0.389 | 0.0 | 5.0 |
+| 20 | 120 | 24 | 0.262 | 0.667 | 0.376 | 0.469 | 0.0 | 5.0 |
+| 30 | 120 | 36 | 0.382 | 0.722 | 0.500 | 0.500 | 0.0 | 5.0 |
 
 ## 4. Robustness: Normal vs Trust-Aware fusion (§20)
 

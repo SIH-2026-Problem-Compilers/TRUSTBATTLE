@@ -380,14 +380,14 @@ export default function DashboardPage() {
 
       <div className="card">
         <div className="card-title">
-          <span>Sensor Status</span>
+          <span>Sensor Observation Trust (current)</span>
         </div>
         <SensorStatusCards trust={current?.trust} />
       </div>
 
       <div className="card" style={{ gridColumn: 'span 1' }}>
         <div className="card-title">
-          <span>Battlefield Position</span>
+          <span>Position Estimate</span>
           <span style={{ textTransform: 'none', fontWeight: 500, color: 'var(--text-dim)' }}>
             {trajectory?.scenario || 'scenario'}
           </span>
