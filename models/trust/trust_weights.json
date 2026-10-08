@@ -7,7 +7,9 @@
     "temporal_consistency": 0.2,
     "cross_sensor_agreement": 0.25,
     "network_integrity": 0.15,
-    "historical_reliability": 0.1
+    "historical_reliability": 0.1,
+    "anomaly_physical": 0.05,
+    "anomaly_temporal": 0.05
   },
   "sensor_priors": {
     "gnss": 0.94,

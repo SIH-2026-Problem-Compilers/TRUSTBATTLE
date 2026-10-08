@@ -196,7 +196,16 @@ class TemporalScorer:
         hist_len = 0
         if history is not None and len(history) > 0:
             hist = self._as_frame(history)
-            df = pd.concat([hist, df], ignore_index=True)
+            # pd.concat element-wise compares .attrs of the inputs; frames
+            # carrying numpy arrays in .attrs (truth arrays on generator
+            # output) raise "truth value of an array ... is ambiguous".
+            # Concat on attrs-cleared shallow copies (caller frames untouched)
+            # and keep the WINDOW's attrs on the result.
+            win_attrs = dict(df.attrs)
+            h2, d2 = hist.copy(deep=False), df.copy(deep=False)
+            h2.attrs, d2.attrs = {}, {}
+            df = pd.concat([h2, d2], ignore_index=True)
+            df.attrs = win_attrs
             hist_len = len(hist)
         feat_all = extract_temporal_features(df)
         feat_df = feat_all.iloc[hist_len:].reset_index(drop=True)

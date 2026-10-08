@@ -109,6 +109,7 @@ def start_attack_scenario(
         "network_anomaly", "sensor_malfunction", "cross_sensor_conflict",
         "mixed_c05", "mixed_c10", "mixed_c20", "mixed_c30",
         "real_geolife",  # real GPS dataset (data/real/) through the pipeline
+        "demo_story",     # §22 demo mode: clean -> spoof -> recovery generator
     }
     if scenario not in valid_scenarios:
         raise HTTPException(

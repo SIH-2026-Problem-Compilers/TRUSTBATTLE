@@ -61,8 +61,8 @@ def run_level(df: pd.DataFrame) -> Dict[str, Any]:
     Returns per-window detection flags, trust values and fused errors for
     both modes, plus the truth-attack flags per window.
     """
-    from integration import interfaces
-    from integration.pipeline import register_available_implementations
+    from integration.pipeline import (register_available_implementations,
+                                     score_window, temporal_context_rows)
 
     register_available_implementations()
 
@@ -73,13 +73,12 @@ def run_level(df: pd.DataFrame) -> Dict[str, Any]:
     for w0 in range(0, n - WINDOW + 1, WINDOW):
         win = slice(w0, w0 + WINDOW)
         window = df.iloc[win].reset_index(drop=True)
-        scores: Dict[str, float] = {}
-        for scorer in (interfaces.score_physical, interfaces.score_temporal):
-            try:
-                scores.update(scorer(window)["scores"])
-            except interfaces.ModuleNotReadyError:
-                pass
-        obs = eval_scenarios.sensor_observations(df, win, rng_seed=2000 + w0)
+        # preceding rows -> M2 history (replay/stale seen-before, CR #5)
+        prior = df.iloc[max(0, w0 - temporal_context_rows()):w0].reset_index(drop=True)
+        out = score_window(window, prior_rows=prior)
+        scores: Dict[str, float] = out.get("scores", {})
+        obs = eval_scenarios.sensor_observations(df, win, rng_seed=2000 + w0,
+                                                 scores=scores)
         result = compute_trust(scores, history, observations=obs)
         history.append(result)
 

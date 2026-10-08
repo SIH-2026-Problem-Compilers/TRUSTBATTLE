@@ -41,16 +41,20 @@ def _stream(df, window=WINDOW, history=None, rng_seed0=1000):
     from member3_trust.src.fusion import fuse
 
     history = history if history is not None else []
+    from integration.pipeline import temporal_context_rows
+    ctx = temporal_context_rows()
     for w0 in range(0, len(df) - window + 1, window):
         win = slice(w0, w0 + window)
         window_df = df.iloc[win].reset_index(drop=True)
 
-        # M1 + M2 scores via integration adapters
-        message = run_observation(window_df)
+        # M1 + M2 scores via integration adapters (preceding rows = M2 history)
+        prior = df.iloc[max(0, w0 - ctx):w0].reset_index(drop=True)
+        message = run_observation(window_df, prior_rows=prior)
         scores = message.get("scores", {})
 
         # M3 trust + fusion
-        obs = es.sensor_observations(df, win, rng_seed=rng_seed0 + w0)
+        obs = es.sensor_observations(df, win, rng_seed=rng_seed0 + w0,
+                                     scores=scores)
         trust_out = compute_trust(scores, history, observations=obs)
         est = fuse(obs, trust_out["trust"])
 

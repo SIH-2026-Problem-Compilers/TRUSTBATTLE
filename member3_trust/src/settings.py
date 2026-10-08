@@ -60,7 +60,17 @@ def trust_settings() -> dict:
     Returns:
         {
           "weights": {evidence score name -> weight},   # §12 weighted model seed
-          "decay": {"drop_rate": float, "recovery_rate": float},   # §13 dynamics
+          "aggregation": {                             # Step 2 corroboration rules
+            "degraded_threshold": float, "min_degraded": int,
+            "corroboration_penalty": float, "severe_floor": float,
+            "min_attribution": float, "primary_min_attribution": float,
+            "cross_extreme_threshold": float,
+            "cross_uncorroborated_floor": float},
+          "estimator_aiding": {"enabled": bool, "rate": float,
+                               "min_disagreement_m": float},
+          "decay": {"drop_rate": float, "recovery_rate": float,
+                    "recovery_ramp": float, "recovery_max": float,
+                    "clean_threshold": float},        # §13 dynamics
           "thresholds": {"green": float, "amber": float},          # §2 alert levels
           "min_sensor_weight": float,                              # fusion floor
           "fusion_mode": "normal" | "trust_aware",
@@ -69,6 +79,8 @@ def trust_settings() -> dict:
     """
     cfg = load_settings()
     weights = _deep_get(cfg, "trust_engine.weights", {}) or {}
+    agg = _deep_get(cfg, "trust_engine.aggregation", {}) or {}
+    aid = _deep_get(cfg, "trust_engine.estimator_aiding", {}) or {}
     return {
         "weights": {
             "physical_consistency": float(weights.get("physical_consistency", 0.30)),
@@ -76,10 +88,35 @@ def trust_settings() -> dict:
             "cross_sensor_agreement": float(weights.get("cross_sensor_agreement", 0.25)),
             "network_integrity": float(weights.get("network_integrity", 0.15)),
             "historical_reliability": float(weights.get("historical_reliability", 0.10)),
+            "anomaly_physical": float(weights.get("anomaly_physical", 0.05)),
+            "anomaly_temporal": float(weights.get("anomaly_temporal", 0.05)),
+        },
+        "aggregation": {
+            "degraded_threshold": float(agg.get("degraded_threshold", 0.75)),
+            "min_degraded": int(agg.get("min_degraded", 2)),
+            "corroboration_penalty": float(agg.get("corroboration_penalty", 0.92)),
+            "severe_floor": float(agg.get("severe_floor", 0.35)),
+            "min_attribution": float(agg.get("min_attribution", 0.30)),
+            "primary_min_attribution": float(agg.get("primary_min_attribution", 0.55)),
+            "primary_blend": float(agg.get("primary_blend", 0.70)),
+            "primary_margin": float(agg.get("primary_margin", 0.10)),
+            "primary_engage_min": float(agg.get("primary_engage_min", 0.30)),
+            "cross_extreme_threshold": float(agg.get("cross_extreme_threshold", 0.35)),
+            "cross_uncorroborated_floor": float(agg.get("cross_uncorroborated_floor", 0.72)),
+            "cross_max_velocity_gap_mps": float(agg.get("cross_max_velocity_gap_mps", 8.0)),
+        },
+        "estimator_aiding": {
+            "enabled": bool(aid.get("enabled", True)),
+            "rate": float(aid.get("rate", 0.35)),
+            "min_disagreement_m": float(aid.get("min_disagreement_m", 60.0)),
+            "max_velocity_gap_mps": float(aid.get("max_velocity_gap_mps", 8.0)),
         },
         "decay": {
             "drop_rate": float(_deep_get(cfg, "trust_engine.decay.drop_rate", 0.6)),
             "recovery_rate": float(_deep_get(cfg, "trust_engine.decay.recovery_rate", 0.25)),
+            "recovery_ramp": float(_deep_get(cfg, "trust_engine.decay.recovery_ramp", 0.5)),
+            "recovery_max": float(_deep_get(cfg, "trust_engine.decay.recovery_max", 0.9)),
+            "clean_threshold": float(_deep_get(cfg, "trust_engine.decay.clean_threshold", 0.65)),
         },
         "thresholds": {
             "green": float(_deep_get(cfg, "trust_engine.thresholds.green", 70.0)),

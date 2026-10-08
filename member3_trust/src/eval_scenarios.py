@@ -277,7 +277,9 @@ def truth_positions(df: pd.DataFrame, window: slice) -> Tuple[Optional[float], O
 
 
 def sensor_observations(df: pd.DataFrame, window: slice,
-                        rng_seed: int = 123) -> Dict[str, Dict[str, float]]:
+                        rng_seed: int = 123,
+                        scores: Optional[Dict[str, float]] = None
+                        ) -> Dict[str, Dict[str, float]]:
     """Build per-sensor position/velocity observations for one window.
 
     MVP simulated sources (about_project.txt §17):
@@ -295,6 +297,24 @@ def sensor_observations(df: pd.DataFrame, window: slice,
     reckons from the first row using only accel — this catches a well-built
     GNSS spoof because the spoofed velocity diverges from the accel-integrated
     velocity (see §22 story).
+
+    **Trust-gated aiding (aided-INS, ``trust_engine.estimator_aiding``).**
+    When *scores* (this window's M1/M2 evidence) show the reported stream fully
+    clean — physical and temporal consistency at/above the degraded threshold
+    — yet the dead-reckoned channel has diverged from the reported position by
+    more than ``min_disagreement_m``, the divergence is uncorroborated: the
+    plausible cause is accumulated inertial drift (e.g. after a sensor-
+    malfunction glitch), not a spoofed measurement. The inertial estimate is
+    then pulled a bounded fraction (``rate``) toward the reported position and
+    velocity each window — the way a GNSS-aided INS re-anchors. A spoofed or
+    conflicting GNSS always degrades physical/temporal consistency first, so
+    the gate never lets corrupted evidence drag the inertial reference.
+    Omit *scores* to disable aiding (pre-existing call sites stay valid).
+    Within the same gate, the inertial *speed* (velocity magnitude) is also
+    leaked toward the reported speed (``velocity_leak_rate``) every clean
+    window — that bounds the dead-reckoner drift at its source, while a
+    rotation-only conflict (speed preserved) and a spoofed speed signature
+    (gate off) stay fully visible.
     """
     w = df.iloc[window]
     if len(w) == 0:
@@ -317,6 +337,16 @@ def sensor_observations(df: pd.DataFrame, window: slice,
     dt = 1.0 / _FS
     win_start = int(w.index[0])
     win_end = int(w.index[-1]) + 1
+    # Reported epoch = window MEAN (same epoch as the reported GNSS mean, the
+    # visual truth-mean, and the evaluation's truth mean). Reporting the
+    # dead-reckoner's END-of-window position instead creates a systematic
+    # half-window lag (speed x 2.5 s ≈ 37 m at 15 m/s) that reads as
+    # cross-sensor disagreement on a perfectly clean, fast track — the
+    # dominant part of the "clean-phase IMU-drift artifact"
+    # (system_audit.md M3-open). The state itself still integrates to the
+    # window end so the next window continues seamlessly.
+    start_lat, start_lon = state["lat"], state["lon"]
+    start_vx, start_vy = state["v_x"], state["v_y"]
     # Integrate accel from the last processed row to the end of this window
     for i in range(state["last_idx"], win_end):
         if i == 0:
@@ -328,9 +358,63 @@ def sensor_observations(df: pd.DataFrame, window: slice,
         state["lat"] += d_north / m_per_deg_lat
         state["lon"] += d_east / m_per_deg_lon
     state["last_idx"] = win_end
-    imu_lat = state["lat"]
-    imu_lon = state["lon"]
-    v_imu = float(np.hypot(state["v_x"], state["v_y"]))
+
+    # ---- trust-gated aiding of the inertial channel (aided-INS) -----------
+    if scores is not None:
+        from .settings import trust_settings
+        tcfg = trust_settings()
+        aid = tcfg.get("estimator_aiding", {}) or {}
+        thr = float((tcfg.get("aggregation") or {}).get("degraded_threshold", 0.75))
+        phys_ok = ("physical_consistency" not in scores
+                   or float(scores["physical_consistency"]) >= thr)
+        temp_ok = ("temporal_consistency" not in scores
+                   or float(scores["temporal_consistency"]) >= thr)
+        gap_e = (gnss_lon - state["lon"]) * m_per_deg_lon
+        gap_n = (gnss_lat - state["lat"]) * m_per_deg_lat
+        vx_g = float(w["vx"].mean())
+        vy_g = float(w["vy"].mean())
+        # velocity signature: a spoofed track carries its own velocity, so the
+        # reported-vs-inertial velocity gap stays large; drift does not.
+        vel_gap = math.hypot(vx_g - state["v_x"], vy_g - state["v_y"])
+
+        # ---- bounded inertial drift: speed damping (scalar leak) -----------
+        # Two dead-reckoner error sources exist on a clean track: the
+        # end-vs-mean epoch lag (fixed above) and a genuine slow drift that
+        # reaches ~25-55 m over 600 s (system_audit.md M3-open), which drags
+        # cross-sensor agreement below the degraded threshold on clean data.
+        # Leak the inertial speed (SCALAR — magnitude only) toward the
+        # reported speed at the same epoch while evidence is clean:
+        #   * drift corrupts the integrated speed -> bounded at the source;
+        #   * a cross-sensor conflict ROTATES the velocity but preserves
+        #     speed -> the leak is a no-op, the step position offset stays
+        #     fully visible to cross-sensor agreement;
+        #   * a spoof changes the reported speed by ~18 m/s -> gate off
+        #     (max_velocity_gap_mps), never dragging the reference.
+        speed_ref = math.hypot(float(w["vx"].iloc[-1]), float(w["vy"].iloc[-1]))
+        v_now = math.hypot(state["v_x"], state["v_y"])
+        leak = float(aid.get("velocity_leak_rate", 0.2))
+        if (bool(aid.get("enabled", True)) and phys_ok and temp_ok
+                and abs(speed_ref - v_now) <= float(aid.get("max_velocity_gap_mps", 8.0))
+                and v_now > 1e-6):
+            scale = 1.0 + leak * (speed_ref / v_now - 1.0)
+            state["v_x"] *= scale
+            state["v_y"] *= scale
+
+        if (bool(aid.get("enabled", True)) and phys_ok and temp_ok
+                and vel_gap <= float(aid.get("max_velocity_gap_mps", 8.0))
+                and math.hypot(gap_e, gap_n) >= float(aid.get("min_disagreement_m", 60.0))):
+            rate = float(aid.get("rate", 0.35))
+            state["lat"] += rate * (gnss_lat - state["lat"])
+            state["lon"] += rate * (gnss_lon - state["lon"])
+            state["v_x"] += rate * (vx_g - state["v_x"])
+            state["v_y"] += rate * (vy_g - state["v_y"])
+
+    imu_lat = 0.5 * (start_lat + state["lat"])
+    imu_lon = 0.5 * (start_lon + state["lon"])
+    # mean velocity over the window (start -> end midpoint), same epoch
+    _mvx = 0.5 * (start_vx + state["v_x"])
+    _mvy = 0.5 * (start_vy + state["v_y"])
+    v_imu = float(np.hypot(_mvx, _mvy))
     # IMU measurement noise (IMU drift)
     if has_truth:
         imu_lat += rng.normal(0, 2.0) / m_per_deg_lat

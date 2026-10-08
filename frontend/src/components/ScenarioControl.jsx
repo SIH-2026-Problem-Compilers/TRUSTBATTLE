@@ -19,7 +19,21 @@ const REAL_SCENARIOS = [
 export default function ScenarioControl({ active, onSelect, wsConnected }) {
   return (
     <div className="scenario-control">
-      <div className="scenario-label">Scenario Playback — controlled simulation (not real battlefield data)</div>
+      <div className="scenario-label">
+        Demo mode — §22 story: normal → GNSS spoofing → recovery (real M1→M2→M3 pipeline)
+      </div>
+      <div className="scenario-buttons">
+        <button
+          className={`scenario-btn ${active === 'demo_story' ? 'active' : ''}`}
+          style={active === 'demo_story' ? { background: '#eab308', borderColor: '#eab308' } : {}}
+          onClick={() => onSelect('demo_story')}
+        >
+          ▶ Run §22 Demo
+        </button>
+      </div>
+      <div className="scenario-label" style={{ marginTop: 8 }}>
+        Scenario Playback — controlled simulation (not real battlefield data)
+      </div>
       <div className="scenario-buttons">
         {SCENARIOS.map((s) => (
           <button

@@ -458,6 +458,22 @@ class RealTrustService(TrustServiceABC):
     # ------------------------------------------------------------------
     def _scenario_df(self, scenario: str) -> Optional[Any]:
         """Dataset for *scenario* (cached); None when the file is missing."""
+        if scenario == "demo_story":
+            # Demo mode (Step 11): the §22 story generator (clean -> GNSS
+            # spoofing -> recovery) streamed through the REAL M1 -> M2 -> M3
+            # pipeline — the same dataset `py -m member3_trust.src.demo`
+            # asserts (7/7), on the dashboard.
+            df = self._scenario_dfs.get(scenario)
+            if df is None:
+                try:
+                    from member3_trust.src import eval_scenarios
+                    df, _ = eval_scenarios.make_spoof_scenario(
+                        n=3200, attack_start=1000, attack_end=1800)
+                except Exception as exc:
+                    _warn_once("demo_story", f"§22 demo generator unavailable: {exc}")
+                    return None
+                self._scenario_dfs[scenario] = df
+            return df
         if scenario not in SCENARIO_DATASETS:
             return None
         df = self._scenario_dfs.get(scenario)
@@ -547,13 +563,17 @@ class RealTrustService(TrustServiceABC):
         st["cursor"] = cursor + WINDOW
         window = df.iloc[cursor:cursor + WINDOW].reset_index(drop=True)
 
-        from integration.pipeline import run_observation
+        from integration.pipeline import run_observation, temporal_context_rows
         from integration import interfaces
         from member3_trust.src import eval_scenarios
 
-        result = run_observation(window)
-        obs = eval_scenarios.sensor_observations(df, slice(cursor, cursor + WINDOW),
-                                                 rng_seed=1000 + cursor)
+        # preceding rows -> M2 history (replay/stale seen-before, CR #5)
+        ctx = temporal_context_rows()
+        prior = df.iloc[max(0, cursor - ctx):cursor].reset_index(drop=True)
+        result = run_observation(window, prior_rows=prior)
+        obs = eval_scenarios.sensor_observations(
+            df, slice(cursor, cursor + WINDOW), rng_seed=1000 + cursor,
+            scores=result.get("scores", {}))
         trust_out = interfaces.compute_trust(result.get("scores", {}),
                                              st["trust_history"], observations=obs)
         # merge (a) M3's derived scores (e.g. cross_sensor_agreement) and
@@ -712,14 +732,15 @@ class RealTrustService(TrustServiceABC):
         true_t, rep_t, fus_t = [], [], []
         for w0 in range(0, len(df) - WINDOW + 1, WINDOW):
             window = df.iloc[w0:w0 + WINDOW].reset_index(drop=True)
-            scores: Dict[str, float] = {}
-            for scorer in (interfaces.score_physical, interfaces.score_temporal):
-                try:
-                    out = scorer(window)
-                    scores.update(out.get("scores", {}))
-                except Exception:
-                    pass
-            obs = eval_scenarios.sensor_observations(df, slice(w0, w0 + WINDOW), rng_seed=2000 + w0)
+            # preceding rows -> M2 history (replay/stale seen-before, CR #5)
+            from integration.pipeline import score_window, temporal_context_rows
+            prior = df.iloc[max(0, w0 - temporal_context_rows()):w0].reset_index(drop=True)
+            try:
+                scores: Dict[str, float] = score_window(window, prior_rows=prior).get("scores", {})
+            except Exception:
+                scores = {}
+            obs = eval_scenarios.sensor_observations(
+                df, slice(w0, w0 + WINDOW), rng_seed=2000 + w0, scores=scores)
             tres = compute_trust(scores, trust_hist, observations=obs)
             trust_hist.append(tres)
             est = fuse(obs, tres["trust"])

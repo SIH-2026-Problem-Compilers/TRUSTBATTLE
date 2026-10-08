@@ -54,6 +54,8 @@ M2_EVIDENCE_HINTS = ("Sequence", "Timestamp", "Sampling", "Packet", "Message fre
 # --------------------------------------------------------------------------- helpers
 def stream(df: pd.DataFrame, seed0: int = 1000, max_windows: int = None) -> List[dict]:
     """Run *df* through M1+M2 -> M3 -> fusion, one record per window."""
+    from integration.pipeline import temporal_context_rows
+    ctx = temporal_context_rows()
     history: List[dict] = []
     out: List[dict] = []
     for w0 in range(0, len(df) - WINDOW + 1, WINDOW):
@@ -61,8 +63,11 @@ def stream(df: pd.DataFrame, seed0: int = 1000, max_windows: int = None) -> List
             break
         win = slice(w0, w0 + WINDOW)
         window = df.iloc[win].reset_index(drop=True)
-        message = run_observation(window)
-        obs = sensor_observations(df, win, rng_seed=seed0 + w0)
+        # preceding rows = M2 history (replay/stale seen-before, CR #5)
+        prior = df.iloc[max(0, w0 - ctx):w0].reset_index(drop=True)
+        message = run_observation(window, prior_rows=prior)
+        obs = sensor_observations(df, win, rng_seed=seed0 + w0,
+                                  scores=message.get("scores", {}))
         trust_out = compute_trust(message.get("scores", {}), history, observations=obs)
         history.append(trust_out)
         if len(history) > 200:

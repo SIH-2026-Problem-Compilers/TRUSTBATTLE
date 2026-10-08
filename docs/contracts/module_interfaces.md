@@ -31,6 +31,7 @@ M4 (data+attacks) ──▶ M1 (physical) ──┐
 | Item | Path / Name | Format |
 |---|---|---|
 | Temporal/network feature extractor | `member2_temporal/src/features.py` | Python import: `extract_temporal_features(df) -> df` |
+| Temporal score entrypoint | `member2_temporal/src/temporal_module.py` | Python import: `score_observation(window_df, history=None) -> dict` — `history` is an **additive optional** 2nd parameter: preceding rows of the same stream, needed for replay/stale "seen-before" evidence (CR #5); the 1-arg call stays valid. Via integration: `interfaces.score_temporal(window_df, history=None)` / `pipeline.score_window(window_df, prior_rows=None)` / `run_observation(window_df, prior_rows=None)` (context length: `configs/settings.yaml → temporal.context_rows`) |
 | Models | `models/temporal/temporal_model.pkl`, `models/temporal/network_model.pkl` | joblib |
 | Score output | JSON message `scores.temporal_consistency`, `scores.network_integrity` | `data_schema.md` §2 |
 

@@ -48,8 +48,12 @@ def test_alert_thresholds(clean_scores, spoof_scores, clean_obs, spoof_obs):
         hist.append(red)
     assert red["alert"]["level"] == "RED"
     assert red["trust"]["observation_trust"] < 40
-    # synthetic AMBER: moderately degraded physical evidence
-    amber_scores = dict(clean_scores, physical_consistency=0.35, anomaly_physical=0.55)
+    # synthetic AMBER: moderately degraded physical evidence. (Input
+    # recalibrated 2026-10-07: with aggregation.primary_blend 0.70 -> 0.85 the
+    # old physical_consistency=0.35 — a 65%-inconsistent primary channel —
+    # now correctly lands RED. 0.55 is genuinely moderate: the band
+    # assertions below are unchanged.)
+    amber_scores = dict(clean_scores, physical_consistency=0.55, anomaly_physical=0.35)
     hist2 = []
     amber = None
     for _ in range(10):

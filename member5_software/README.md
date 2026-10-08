@@ -31,6 +31,19 @@
 - Components: `MapView` (react-leaflet, dark CartoDB tiles, 3-line legend true / reported GNSS / fused), `TrustGauge` (180 px SVG ring with color by level), `SensorStatusCards` (4 cards, weight %, level bar), `EvidencePanel` (✓/✗ + detail + recommended action in §15 wording), `TrustChart` + `SensorWeightsChart` (Recharts, GREEN/AMBER threshold refs), `AlertBanner` (RED pulses), `ScenarioControl` (8 attack-scenario buttons + WS live indicator).
 - Initial REST fetch → WebSocket keeps everything live (trust rolling history, weights stacked area, evidence, alert, map current marker).
 
+**2026-10-07 update (Steps 10/11):**
+- **Demo mode:** `POST /api/v1/demo/attack/demo_story` streams the §22 story
+  (clean → GNSS spoofing → recovery, the same dataset the M3 demo asserts
+  7/7) through the **real** M1→M2→M3 pipeline; dashboard button
+  “▶ Run §22 Demo” in `ScenarioControl`.
+- **Evidence chips (§15 explainability):** `EvidencePanel` renders M3's
+  HIGH/MEDIUM/LOW `level` per evidence entry (derived from pass/fail for
+  upstream M1/M2 checks that don't carry one).
+- Streaming callers pass `temporal.context_rows` (150) preceding rows to M2
+  as history (CR #5) so replay seen-before evidence fires across windows.
+- Tests: `tests/test_context_wiring.py` covers demo_story + history
+  forwarding; repo suite **175 passed**.
+
 ## Swapping mock → real M1+M2+M3
 
 The only change needed is one line in `backend/app/services/trust_service.py::get_trust_service()` — but **it already auto-prefers `RealTrustService`** (falls back to `MockTrustService` if modules raise on import). The backend TestClient run already exercises the real pipeline (M1 physical + M2 temporal scores → M3 trust → fused trajectory).

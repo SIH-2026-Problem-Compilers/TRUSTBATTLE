@@ -158,14 +158,17 @@ class RealDataSession:
     # ------------------------------------------------------------------ #
     def _score_locked(self) -> Optional[TrustMessage]:
         try:
-            from integration.pipeline import run_observation
+            from integration.pipeline import run_observation, temporal_context_rows
             from member3_trust.src.trust_engine import compute_trust
             from member3_trust.src.fusion import fuse
 
             window = self._df.iloc[-WINDOW_MAX:].reset_index(drop=True)
             self._new_since_score = 0
 
-            result = run_observation(window)
+            # preceding rows -> M2 history (replay/stale seen-before, CR #5)
+            start = max(0, len(self._df) - WINDOW_MAX)
+            prior = self._df.iloc[max(0, start - temporal_context_rows()):start].reset_index(drop=True)
+            result = run_observation(window, prior_rows=prior)
             scores = result.get("scores", {})
             obs = self._observations_locked(window)
             trust_out = compute_trust(scores, self._trust_history, observations=obs)
@@ -313,10 +316,14 @@ def build_replay_messages(name: str = "geolife",
 
     history: List[Dict[str, Any]] = []
     WINDOW = 50
+    from integration.pipeline import temporal_context_rows
+    ctx = temporal_context_rows()
     try:
         for w0 in range(0, min(len(df), WINDOW * limit_windows) - WINDOW + 1, WINDOW):
             window = df.iloc[w0:w0 + WINDOW].reset_index(drop=True)
-            result = run_observation(window)
+            # preceding rows -> M2 history (replay/stale seen-before, CR #5)
+            prior = df.iloc[max(0, w0 - ctx):w0].reset_index(drop=True)
+            result = run_observation(window, prior_rows=prior)
             scores = result.get("scores", {})
             last = window.iloc[-1]
             obs = {"gnss": {"sensor_id": "gnss",

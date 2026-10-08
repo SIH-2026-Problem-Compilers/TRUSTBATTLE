@@ -7,9 +7,36 @@ Members extend this file together as their modules land.
 
 from __future__ import annotations
 
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
 from integration import interfaces
+
+_CONTEXT_ROWS: Optional[int] = None
+
+
+def temporal_context_rows() -> int:
+    """Rows of preceding stream data callers should pass to M2 as history.
+
+    Tunable: ``configs/settings.yaml → temporal.context_rows`` (default 150 —
+    covers the 12 s replay re-delivery, ``attacks.replay.delay_s`` = 121 ticks
+    @10 Hz, so the replay "seen-before" freshness evidence can fire across
+    window boundaries; CR #5).
+    """
+    global _CONTEXT_ROWS
+    if _CONTEXT_ROWS is None:
+        rows = 150
+        try:
+            from pathlib import Path
+            import yaml
+            path = Path(__file__).resolve().parents[1] / "configs" / "settings.yaml"
+            if path.exists():
+                with open(path, "r", encoding="utf-8") as fh:
+                    cfg = yaml.safe_load(fh) or {}
+                rows = int((cfg.get("temporal") or {}).get("context_rows", rows))
+        except Exception:  # config unreadable -> safe default
+            pass
+        _CONTEXT_ROWS = max(0, rows)
+    return _CONTEXT_ROWS
 
 
 def register_available_implementations() -> None:
@@ -46,22 +73,57 @@ def register_available_implementations() -> None:
 register_available_implementations()
 
 
-def run_observation(window_df) -> Dict[str, Any]:
+def score_window(window_df, prior_rows=None) -> Dict[str, Any]:
+    """M1 + M2 scores/evidence for one window (trust NOT computed here).
+
+    Thin composition of the two scoring adapters so streaming callers pass
+    the same context to M2 everywhere:
+
+    Args:
+        window_df: One observation window (schema §1 rows).
+        prior_rows: Preceding rows of the same stream, forwarded to M2 as
+            ``history`` (replay/stale "seen-before" evidence — see
+            :func:`temporal_context_rows`, CR #5). None keeps the original
+            no-context call.
+
+    Returns:
+        ``{"scores": {...}, "evidence": [...]}`` plus
+        ``<stage>_status: "module_not_ready"`` entries for missing modules
+        (same degradation contract as :func:`run_observation`).
+    """
+    scores: Dict[str, Any] = {}
+    evidence: list = []
+    status: Dict[str, str] = {}
+    try:
+        out = interfaces.score_physical(window_df)
+        scores.update(out.get("scores", {}))
+        evidence.extend(out.get("evidence", []))
+    except interfaces.ModuleNotReadyError:
+        status["physical_status"] = "module_not_ready"
+    try:
+        out = interfaces.score_temporal(window_df, history=prior_rows)
+        scores.update(out.get("scores", {}))
+        evidence.extend(out.get("evidence", []))
+    except interfaces.ModuleNotReadyError:
+        status["temporal_status"] = "module_not_ready"
+    return {"scores": scores, "evidence": evidence, **status}
+
+
+def run_observation(window_df, prior_rows=None) -> Dict[str, Any]:
     """One observation window -> full inter-module message (data_schema.md §2).
 
     Returns the message with whatever stages are ready; missing stages
-    appear as {"status": "module_not_ready"}.
+    appear as {"status": "module_not_ready"}. *prior_rows* (optional preceding
+    stream rows) is forwarded to M2 as history — see :func:`score_window`.
     """
     message: Dict[str, Any] = {"schema_version": "1.0"}
 
-    for stage, scorer in (("physical", interfaces.score_physical),
-                          ("temporal", interfaces.score_temporal)):
-        try:
-            out = scorer(window_df)  # one call: scores + evidence from the same run
-            message.setdefault("scores", {}).update(out.get("scores", {}))
-            message.setdefault("evidence", []).extend(out.get("evidence", []))
-        except interfaces.ModuleNotReadyError:
-            message[f"{stage}_status"] = "module_not_ready"
+    scored = score_window(window_df, prior_rows=prior_rows)
+    message.setdefault("scores", {}).update(scored.get("scores", {}))
+    message.setdefault("evidence", []).extend(scored.get("evidence", []))
+    for key, val in scored.items():
+        if key.endswith("_status"):
+            message[key] = val
 
     try:
         trust_result = interfaces.compute_trust(message.get("scores", {}), history=[])

@@ -376,6 +376,23 @@ body {
   margin-top: 4px;
 }
 
+/* Evidence strength chip (M3 explainability, §15): HIGH / MEDIUM / LOW */
+.evidence-level {
+  display: inline-block;
+  margin-left: 8px;
+  padding: 1px 7px;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  vertical-align: middle;
+  border: 1px solid currentColor;
+  background: rgba(255, 255, 255, 0.04);
+}
+.evidence-level.high { color: var(--green); }
+.evidence-level.medium { color: var(--amber); }
+.evidence-level.low { color: var(--red); }
+
 .recommendation-box {
   margin-top: 12px;
   padding: 10px 12px;

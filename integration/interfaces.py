@@ -59,9 +59,19 @@ def extract_temporal_features(df):
     return _call("extract_temporal_features", df)
 
 
-def score_temporal(window_df) -> Dict[str, Any]:
-    """M2: -> {"scores": {...}, "evidence": [...]} per data_schema.md §2."""
-    return _call("score_temporal", window_df)
+def score_temporal(window_df, history=None) -> Dict[str, Any]:
+    """M2: -> {"scores": {...}, "evidence": [...]} per data_schema.md §2.
+
+    ``history`` is M2's own optional second parameter (additive, CR #5):
+    the preceding rows of the same stream. Replay/stale evidence
+    (``m2_seq_seen_before`` → "Message freshness") needs that context — a
+    12 s re-delivery (settings.yaml ``attacks.replay.delay_s``) cannot be
+    recognized from a 50-row window alone. ``None`` keeps the original
+    single-argument call.
+    """
+    if history is None:
+        return _call("score_temporal", window_df)
+    return _call("score_temporal", window_df, history=history)
 
 
 # ---- Member 3: Trust Engine & Fusion --------------------------------------

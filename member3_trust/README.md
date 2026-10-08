@@ -96,3 +96,23 @@ py -m pytest member3_trust/tests -q
   `models/**/*.pkl` stay gitignored — regenerate locally after cloning.
 - Tunables: `configs/settings.yaml` → `trust_engine:` / `fusion:` sections
   (M3-owned); artifact seed mirrors them.
+- **2026-10-07 (trust development phase, Steps 2–6/9, CR #5):**
+  - Evidence aggregation on top of the geometric mean: corroboration penalty
+    for ≥2 degraded families, primary-channel pull (blend 0.85 — the `net`
+    sensor now reaches AMBER on network integrity 0.65–0.70), all under
+    `trust_engine.aggregation.*`; §13 recovery ramp
+    (`decay.recovery_ramp/recovery_max/clean_threshold`), `drop_rate` 0.75.
+  - Explainability: every evidence entry carries a HIGH/MEDIUM/LOW `level`
+    plus per-sensor `Per-sensor trust [sensor]` entries (Steps 5/9).
+  - `eval_scenarios.sensor_observations`: epoch-aligned reporting (all
+    channels at window-mean — removed the systematic half-window lag that
+    read as cross-sensor conflict on clean fast tracks) + trust-gated aiding
+    and speed damping — **resolves the system-audit M3-open clean-phase
+    IMU-drift artifact** (clean gap 22.6→9.1 m mean).
+  - Demo: `py -m member3_trust.src.demo` **7/7** (stale `lands_near_30`
+    check reframed to the §22 drop-through; system-audit M2-open resolved).
+  - Measured on the 11-scenario matrix vs the pre-change engine
+    (`evaluation/results/trust_vs_baseline_before.csv`): F1 improved 8/10
+    (network 0.519→0.899, conflict 0.696→0.800, mixed c10 0.230→0.359,
+    c30 0.500→0.606), FPR down everywhere, clean fusion error 32.1→8.6 m.
+  - M3 tests: **47 passed**; repo suite **175 passed**.

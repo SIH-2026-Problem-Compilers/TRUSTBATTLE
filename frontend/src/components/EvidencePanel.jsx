@@ -14,13 +14,26 @@ export default function EvidencePanel({ evidence, alert }) {
         )}
         {items.map((e, i) => {
           const pass = e.pass === true || e.pass === 1;
+          // M3 entries carry an explicit HIGH/MEDIUM/LOW level; upstream M1/M2
+          // checks only pass pass/fail — derive the chip from that.
+          const level = (e.level || (pass ? 'HIGH' : 'LOW')).toString().toUpperCase();
           return (
             <div key={i} className={`evidence-item ${pass ? '' : 'fail'}`}>
               <div className={`evidence-status ${pass ? 'pass' : 'fail'}`}>
                 {pass ? '✓' : '✗'}
               </div>
               <div style={{ flex: 1 }}>
-                <div className="evidence-check">{e.check}</div>
+                <div className="evidence-check">
+                  {e.check}
+                  {level && (
+                    <span
+                      className={`evidence-level ${level.toLowerCase()}`}
+                      title={`Evidence strength: ${level} (quality of this evidence family right now)`}
+                    >
+                      {level}
+                    </span>
+                  )}
+                </div>
                 {e.detail && <div className="evidence-detail">{e.detail}</div>}
               </div>
             </div>

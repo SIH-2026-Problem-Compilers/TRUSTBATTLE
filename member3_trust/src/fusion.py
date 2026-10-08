@@ -118,26 +118,73 @@ def _trust_map(trust_scores: Any, sensors: List[str]) -> Dict[str, float]:
 # ---------------------------------------------------------------------------
 # weight computation (§14)
 # ---------------------------------------------------------------------------
+def floor_normalize(raw: Dict[str, float], min_w: float) -> Dict[str, float]:
+    """Normalize *raw* to Σ=1 with every weight ≥ ``min_w`` (Step 6).
+
+    The floor is enforced AFTER normalization (re-checked, since the
+    redistribution can push other weights down again), so the result is always
+    valid: sums to 1, non-negative, never NaN (non-finite inputs are treated
+    as 0). Shared by :func:`compute_weights` and the trust engine's
+    ``sensor_weights`` so every consumer sees the same guarantee.
+
+    Args:
+        raw: {sensor: raw non-negative influence}; values may be 0 or NaN.
+        min_weight: minimum per-sensor weight floor (fusion.min_sensor_weight).
+
+    Returns:
+        {sensor: weight} summing to 1.0, each ≥ min_w (when len×min_w ≤ 1).
+    """
+    sensors = list(raw)
+    if not sensors:
+        return {}
+    clean: Dict[str, float] = {}
+    for s, v in raw.items():
+        try:
+            fv = float(v)
+        except (TypeError, ValueError):
+            fv = 0.0
+        clean[s] = fv if (math.isfinite(fv) and fv > 0.0) else 0.0
+    total = sum(clean.values())
+    if total <= 0:
+        return {s: 1.0 / len(sensors) for s in sensors}
+    min_w = max(0.0, min(float(min_w), 1.0 / len(sensors)))
+    w = {s: v / total for s, v in clean.items()}
+    for _ in range(len(sensors) + 2):
+        below = [s for s in w if w[s] < min_w - 1e-12]
+        if not below:
+            break
+        for s in below:
+            w[s] = min_w
+        others = [s for s in w if s not in set(below)]
+        osum = sum(w[s] for s in others)
+        if not others or osum <= 0:
+            break
+        target_free = 1.0 - min_w * len(below)
+        for s in others:
+            w[s] *= target_free / osum
+    return w
+
+
 def compute_weights(trust_map: Dict[str, float], mode: str,
                     min_weight: float) -> Dict[str, float]:
     """Fusion weights for a mode; Σ = 1, every weight ≥ min_weight.
 
     Args:
-        trust_map: {sensor: trust 0–100}.
+        trust_map: {sensor: trust 0–100} (non-finite/negative treated as 0).
         mode: "trust_aware" (weights ∝ trust) or "normal" (equal weights).
-        min_weight: fusion.min_sensor_weight floor applied before normalizing.
+        min_weight: fusion.min_sensor_weight floor — enforced AFTER
+            normalization so the guarantee holds on the returned weights.
 
     Returns:
-        {sensor: weight} summing to 1.0 (float rounding aside).
+        {sensor: weight} summing to 1.0, each ≥ min_weight.
     """
     sensors = list(trust_map)
     if not sensors:
         return {}
     if mode == "normal":
         return {s: 1.0 / len(sensors) for s in sensors}
-    raw = {s: max(float(t) / 100.0, min_weight) for s, t in trust_map.items()}
-    total = sum(raw.values())
-    return {s: w / total for s, w in raw.items()}
+    raw = {s: float(t) / 100.0 for s, t in trust_map.items()}
+    return floor_normalize(raw, min_weight)
 
 
 # ---------------------------------------------------------------------------

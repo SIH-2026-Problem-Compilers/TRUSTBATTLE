@@ -78,5 +78,15 @@ IAT std, catch-up bursts, packet loss + excess, combined `m2_net_disruption`.
   are calibrated at fpr_target/2 (Šidák) so the UNION meets the 0.010 target.
 - Tunables live in `configs/settings.yaml` under `temporal:` (added by M2;
   flagged for review in `docs/contracts/CHANGE_REQUESTS.md` #2).
+- **2026-10-07 (Step 3, CR #5):** every streaming caller (integration
+  adapters, experiment runner, demo, backend) now passes the preceding
+  `temporal.context_rows` (150 ≥ the 12 s / 121-tick replay delay) rows as
+  `score_observation(window, history=...)`, so the "Message freshness
+  (no re-broadcast)" seen-before evidence fires **across window boundaries**
+  — on M4 replay it pushes `temporal_consistency` 0.533 → 0.375 and
+  `anomaly_temporal` 0.33 → 0.50. Also fixed: `pd.concat` in `score()` now
+  runs on attrs-cleared shallow copies (numpy-array `.attrs` used to raise
+  "truth value of an array ... is ambiguous"). New tests
+  `tests/test_history_context.py` (4). Repo suite: **175 passed**.
 - `*.pkl` artifacts are gitignored — regenerate locally with
   `py -m member2_temporal.src.train` after cloning.

@@ -42,9 +42,50 @@ trust_engine:       # used by Member 3 (initial weights — to be experimentally
     cross_sensor_agreement: 0.25
     network_integrity: 0.15
     historical_reliability: 0.10
+    # ML anomaly detectors (inverted 1 - anomaly before use). Additive evidence
+    # terms: deterministic check scores and ML model scores stay separate
+    # inputs, and the weighted mean renormalizes over whatever is present.
+    anomaly_physical: 0.05
+    anomaly_temporal: 0.05
+  aggregation:        # Step 2 — multi-evidence corroboration (evidence rules only)
+    degraded_threshold: 0.75   # family quality below this counts as degraded
+    min_degraded: 2            # corroboration penalty applies from this many degraded families
+    corroboration_penalty: 0.92  # multiplicative factor per additional degraded family
+    severe_floor: 0.35         # never amplify below this (already-severe trust)
+    min_attribution: 0.30      # per-sensor: only families meaningfully attributed count
+    primary_min_attribution: 0.55  # a sensor's primary channel(s)
+    primary_blend: 0.85        # how strongly quality blends toward the primary channel
+    primary_margin: 0.10       # pull only when the primary channel is this much weaker
+    primary_engage_min: 0.30   # never re-blend an already-catastrophic channel
+    # Cross-sensor disagreement that is EXTREME (quality below extreme_threshold)
+    # while every other deterministic family is clean is treated as unresolved
+    # (most plausibly drift of a derived/dead-reckoned source) instead of
+    # decisive evidence: its impact is bounded to floor_value so a lingering
+    # inertial divergence cannot pin trust to the floor forever.
+    cross_extreme_threshold: 0.35
+    cross_uncorroborated_floor: 0.72
+    cross_max_velocity_gap_mps: 8.0  # position-only divergence = drift signature
+  estimator_aiding:   # trust-gated aiding of the dead-reckoned channels (aided-INS behaviour)
+    enabled: true
+    rate: 0.35           # fraction of the GNSS–inertial disagreement removed per window
+    # Only heals large divergence (bounded drift stays <= ~26 m, conflict step
+    # 35 m + drift stays <= ~61 m and is therefore NEVER healed — the conflict
+    # offset must remain visible to cross-sensor agreement; genuine nav
+    # malfunction divergence is unbounded and crosses this freely).
+    min_disagreement_m: 80.0
+    max_velocity_gap_mps: 8.0  # never aid when velocity channels disagree (spoof signature)
+    velocity_leak_rate: 0.2   # per-window damping of inertial velocity toward the reported
+                              # velocity while evidence is clean + velocity channels agree —
+                              # bounds dead-reckoner drift (system_audit M3-open artifact)
+                              # WITHOUT healing step-position offsets (conflict) or spoofed
+                              # velocity (gate off: spoof velocity gap ~18 m/s > 8)
   decay:
-    drop_rate: 0.6      # how fast trust falls during anomaly
+    drop_rate: 0.75     # how fast trust falls during anomaly (fast attack onset;
+                        # a 50-row attack block must reach RED inside 2 windows)
     recovery_rate: 0.25 # how fast trust recovers after anomaly
+    recovery_ramp: 0.5  # extra fraction of recovery_rate per consecutive clean window
+    recovery_max: 0.9   # cap on the ramped recovery rate
+    clean_threshold: 0.65  # family quality above this counts as clean (drives the ramp)
   thresholds:
     green: 70
     amber: 40
@@ -93,6 +134,10 @@ temporal:           # Member 2 — temporal & telemetry/network tunables
     nu: 0.02
     kernel: rbf
   threshold_percentile: 0.999     # learned check limits = this percentile of clean data
+  context_rows: 150              # rows of preceding stream that streaming callers pass to
+                                  # score_temporal() as `history` (CR #5) — replay re-delivers
+                                  # attacks.replay.delay_s = 12 s = 121 ticks @10 Hz, so the
+                                  # "seen-before" freshness evidence needs >= that much context
   checks:
     max_ts_rewind_s: 0.05         # clock rewind above this = stale/replayed stream
     max_ts_gap_s: 0.5             # sampling gap limit
