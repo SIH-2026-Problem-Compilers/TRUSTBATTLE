@@ -78,7 +78,14 @@ def coerce_rows(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
             row: Dict[str, Any] = {}
             for c in FLOAT_COLUMNS:
                 v = r.get(c, None)
-                row[c] = float(v) if v is not None else 0.0
+                if c == "timestamp" and v is None:
+                    # A row without a timestamp is an invalid reading: keep it
+                    # NaN so the pd.isna guard below DROPS it instead of
+                    # silently inventing an epoch-0 (1970) observation that
+                    # would poison sequencing and freshness in the dashboard.
+                    row[c] = float("nan")
+                else:
+                    row[c] = float(v) if v is not None else 0.0
             for c in INT_COLUMNS:
                 v = r.get(c, None)
                 row[c] = int(float(v)) if v is not None else 0
@@ -254,6 +261,19 @@ class RealDataSession:
     def last_message(self) -> Optional[TrustMessage]:
         with self._lock:
             return self._messages[-1] if self._messages else None
+
+    def last_row(self) -> Optional[Dict[str, Any]]:
+        """Last raw device row actually received (None when none arrived).
+
+        Used by ``GET /api/v1/real/status`` to show the real-device panel the
+        genuinely-supplied reading (coordinates + timestamp) so the dashboard
+        can display freshness and clearly mark stale/disconnected sessions.
+        """
+        with self._lock:
+            if self._df.empty:
+                return None
+            row = self._df.iloc[-1]
+            return {c: row[c] for c in SCHEMA_COLUMNS if c in self._df.columns}
 
     def trajectory(self) -> TrajectoryResponse:
         with self._lock:

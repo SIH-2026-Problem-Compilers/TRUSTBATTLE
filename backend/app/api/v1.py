@@ -146,6 +146,14 @@ def advance_scenario(
 class RealIngestRequest(BaseModel):
     model_config = ConfigDict(extra="allow")
     rows: List[Dict[str, Any]]
+    # Source/mode validation (Live Sensor Integrity Comparison, spec §5): the
+    # real-device pathway accepts ONLY real-device rows. A frontend label is
+    # not a boundary, so a client declaring simulated data here is rejected
+    # instead of being silently mixed into the real-device session.
+    source: str = "real_device_gps"
+
+
+REAL_INGEST_SOURCES = {"real_device_gps"}
 
 
 @router.post("/real/session")
@@ -158,14 +166,47 @@ def reset_real_session() -> dict:
 
 @router.post("/real/ingest")
 def ingest_real_rows(body: RealIngestRequest) -> dict:
-    """Ingest real sensor rows; scores them through the M1->M2->M3 pipeline."""
+    """Ingest real sensor rows; scores them through the M1->M2->M3 pipeline.
+
+    Rejects rows whose declared ``source`` is not a real-device source so
+    controlled-simulated observations can never enter the real-device session
+    (they belong on ``/api/v1/live/*``).
+    """
     from backend.app.services.real_data import get_real_session
+    if body.source not in REAL_INGEST_SOURCES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"source '{body.source}' is not a real-device source; "
+                   f"controlled simulations must use /api/v1/live/*. "
+                   f"Valid: {sorted(REAL_INGEST_SOURCES)}",
+        )
     out = get_real_session().add_rows(body.rows)
     return {
         "accepted": out["accepted"],
         "total_rows": out["total_rows"],
         "trust": out["trust"],
         "source": "real_device_gps",
+    }
+
+
+@router.get("/real/status")
+def real_session_status() -> dict:
+    """Current REAL-DEVICE session state for the comparison view.
+
+    Reports only what the device actually supplied: row count, the last raw
+    measurement (or None when nothing arrived) and the last COMPUTED trust
+    message (None until the pipeline has a full window — the API never
+    fabricates a trust score for a single GPS reading).
+    """
+    from backend.app.services.real_data import get_real_session
+    session = get_real_session()
+    msg = session.last_message()
+    return {
+        "source": "real_device_gps",
+        "session_rows": session.row_count,
+        "has_computed_trust": msg is not None,
+        "trust": msg.model_dump(mode="json", by_alias=True) if msg else None,
+        "last_row": session.last_row(),
     }
 
 

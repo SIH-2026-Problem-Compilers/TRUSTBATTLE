@@ -8,7 +8,9 @@ import SensorWeightsChart from '../components/SensorWeightsChart.jsx';
 import MapView from '../components/MapView.jsx';
 import ScenarioControl from '../components/ScenarioControl.jsx';
 import LiveControl from '../components/LiveControl.jsx';
+import SensorIntegrityComparison from '../components/SensorIntegrityComparison.jsx';
 import { api, openLiveSocket, trustLevelFromValue } from '../services/api.js';
+import { describeGeoError, geolocationUnsupported, hasComputedTrust } from '../services/deviceState.js';
 
 const REAL_GPS = 'real_gps';
 const REAL_GEO = 'real_geolife';
@@ -54,12 +56,27 @@ export default function DashboardPage() {
   const [realStatus, setRealStatus] = useState(null); // string message for real modes
   const [liveStatus, setLiveStatus] = useState(null);
   const [autoRunning, setAutoRunning] = useState(false);
+  // LIVE SENSOR INTEGRITY COMPARISON: structured real-device state + the last
+  // message each SOURCE produced, kept apart so the two can never be confused.
+  const [realInfo, setRealInfo] = useState({
+    state: 'idle', detail: 'Not connected — click “Connect live device”', motion: false,
+    message: null, lastRow: null, sessionRows: 0,
+  });
+  const [simMsg, setSimMsg] = useState(null);
+  const [realEvents, setRealEvents] = useState([]);
   const historyRef = useRef([]);
+  const realMsgRef = useRef(null);
+
+  const pushRealEvent = (text) => {
+    const time = new Date().toTimeString().slice(0, 8);
+    setRealEvents((prev) => [...prev, { time, text }].slice(-20));
+  };
 
   // mode: 'scenario' (synthetic WS playback) | 'real_gps' | 'real_geolife'
   const modeRef = useRef('scenario');
   const watchIdRef = useRef(null);
   const flushTimerRef = useRef(null);
+  const realStatusTimerRef = useRef(null);
   const pollTimerRef = useRef(null);
   const sessionIdRef = useRef(null);
   const batchRef = useRef([]);
@@ -71,6 +88,19 @@ export default function DashboardPage() {
 
   const applyMessage = (msg) => {
     setCurrent(msg);
+    // keep each source's last message separately (data-source isolation §5)
+    if (modeRef.current === REAL_GPS) {
+      const prev = realMsgRef.current;
+      realMsgRef.current = msg;
+      setRealInfo((info) => ({ ...info, message: msg }));
+      if (!hasComputedTrust(prev)) {
+        pushRealEvent(`Observation received — integrity evidence computed (${msg.evidence?.length || 0} items)`);
+      } else if (prev.alert?.level !== msg.alert?.level) {
+        pushRealEvent(`Integrity check: trust ${prev.alert?.level} → ${msg.alert?.level} (${Number(msg.trust.observation_trust).toFixed(1)})`);
+      }
+    } else {
+      setSimMsg(msg);
+    }
     historyRef.current = appendHistory(historyRef.current, msg);
     setHistory([...historyRef.current]);
   };
@@ -172,6 +202,7 @@ export default function DashboardPage() {
       watchIdRef.current = null;
     }
     if (flushTimerRef.current) { clearInterval(flushTimerRef.current); flushTimerRef.current = null; }
+    if (realStatusTimerRef.current) { clearInterval(realStatusTimerRef.current); realStatusTimerRef.current = null; }
     if (pollTimerRef.current) { clearInterval(pollTimerRef.current); pollTimerRef.current = null; }
     sessionIdRef.current = null;
     lastFixRef.current = null;
@@ -236,6 +267,15 @@ export default function DashboardPage() {
     try {
       const res = await api.ingestReal(rows);
       setRealStatus(`Live GPS: ${res.total_rows} real rows scored`);
+      // the device DID supply a reading — surface it as live + fresh
+      const sent = rows[0];
+      setRealInfo((info) => ({
+        ...info,
+        state: 'live',
+        detail: `Receiving fixes — ${res.total_rows} rows accepted by the pipeline`,
+        sessionRows: res.total_rows,
+        lastRow: { timestamp: sent.timestamp, latitude: sent.latitude, longitude: sent.longitude, velocity: sent.velocity },
+      }));
       const msg = res.trust;
       if (msg && modeRef.current === REAL_GPS) {
         applyMessage(msg);
@@ -253,6 +293,8 @@ export default function DashboardPage() {
     } catch (e) {
       console.warn('real ingest failed:', e);
       setRealStatus(`Live GPS ingest error: ${e.message}`);
+      setRealInfo((info) => ({ ...info, state: 'error', detail: `Ingest error — ${e.message}` }));
+      pushRealEvent(`Device ingest error — ${e.message}`);
     }
   };
 
@@ -265,9 +307,16 @@ export default function DashboardPage() {
     fusedRef.current = [];
     setTrajectory(null);
     setRealStatus('Live GPS: waiting for first fix...');
+    setRealInfo((info) => ({
+      ...info, state: 'connecting', detail: 'Requesting browser location permission…',
+      message: null, lastRow: null, sessionRows: 0,
+    }));
+    pushRealEvent('Device session requested — waiting for browser permission');
 
     if (!navigator.geolocation) {
+      const s = geolocationUnsupported();
       setRealStatus('Live GPS: geolocation not supported in this browser');
+      setRealInfo((info) => ({ ...info, state: s.state, detail: s.detail }));
       return;
     }
     try { await api.startRealSession(); } catch (e) { console.warn('real session reset failed', e); }
@@ -298,10 +347,30 @@ export default function DashboardPage() {
           console.warn('fix handling failed', e);
         }
       },
-      (err) => setRealStatus(`Live GPS: ${err.message} (allow location access)`),
+      (err) => {
+        // map the real browser outcome (mockable in tests, see deviceState.js)
+        const s = describeGeoError(err);
+        setRealStatus(`Live GPS: ${s.detail}`);
+        setRealInfo((info) => ({ ...info, state: s.state, detail: s.detail }));
+        pushRealEvent(`Device: ${s.state.toUpperCase()} — ${s.detail}`);
+      },
       { enableHighAccuracy: true, maximumAge: 1000, timeout: 20000 }
     );
     flushTimerRef.current = setInterval(flushBatch, 2000);
+    // refresh connection/permission state + latest computed trust from the backend
+    realStatusTimerRef.current = setInterval(async () => {
+      if (modeRef.current !== REAL_GPS) return;
+      try {
+        const st = await api.getRealStatus();
+        setRealInfo((info) => ({
+          ...info,
+          state: info.state === 'connecting' && st.last_row ? 'live' : (info.state === 'denied' ? 'denied' : info.state),
+          sessionRows: st.session_rows,
+          lastRow: st.last_row || info.lastRow,
+          message: st.trust || info.message,
+        }));
+      } catch { /* backend restarting; next tick retries */ }
+    }, 5000);
   };
 
   const attachMotion = () => {
@@ -319,6 +388,8 @@ export default function DashboardPage() {
           gx: toRad(r?.alpha), gy: toRad(r?.beta), gz: toRad(r?.gamma),
         },
       };
+      // only claim motion readings once the browser actually supplies them
+      setRealInfo((info) => (info.motion ? info : { ...info, motion: true }));
     };
     window.addEventListener('devicemotion', listener);
     motionRef.current = { listener, value: null };
@@ -425,6 +496,22 @@ export default function DashboardPage() {
         active={activeScenario}
         onSelect={handleSelectScenario}
         wsConnected={wsConnected || isReal}
+      />
+
+      <SensorIntegrityComparison
+        real={realInfo}
+        sim={{
+          status: liveStatus,
+          message: simMsg,
+          autoRunning,
+          scenario: liveStatus?.scenario || (modeRef.current === 'scenario' ? activeScenario : null),
+          events: liveStatus?.events || [],
+        }}
+        realEvents={realEvents}
+        onRealConnect={startRealGps}
+        onRealDisconnect={() => { stopRealModes(); setRealInfo((i) => ({ ...i, state: 'idle', detail: 'Disconnected by user' })); }}
+        onScenario={handleLiveScenario}
+        wsConnected={wsConnected}
       />
 
       {realStatus && (

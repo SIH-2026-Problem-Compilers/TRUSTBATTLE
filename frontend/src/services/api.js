@@ -35,6 +35,7 @@ export const api = {
   ingestReal: (rows) => _post('/real/ingest', { rows }),
   getRealTrajectory: () => _get('/real/trajectory'),
   listRealDatasets: () => _get('/real/datasets'),
+  getRealStatus: () => _get('/real/status'),
 
   // ---- TRUSTBATTLE LIVE (controlled live simulation) ----
   liveStatus: () => _get('/live/status'),
