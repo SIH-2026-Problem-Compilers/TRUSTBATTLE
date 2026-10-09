@@ -21,6 +21,7 @@ ws_router = APIRouter()
 
 _active_connections: Set[WebSocket] = set()
 _session_tasks: Dict[str, asyncio.Task] = {}
+_live_frames: Dict[WebSocket, int] = {}
 
 
 @ws_router.websocket("/ws/live")
@@ -48,9 +49,16 @@ async def ws_live(websocket: WebSocket, session_id: str = "default") -> None:
                 scenario, ep = "gnss_spoof", 0
 
             if sid is None or ep != epoch:
-                started = service.start_ws_session(scenario)
-                sid = started["session_id"]
-                epoch = ep
+                # TRUSTBATTLE LIVE: when the service signals live mode the
+                # controller itself drives generation; session id "live"
+                # routes advance_playback to the live controller.
+                if scenario == "live":
+                    sid = "live"
+                    epoch = ep
+                else:
+                    started = service.start_ws_session(scenario)
+                    sid = started["session_id"]
+                    epoch = ep
 
             msg = service.advance_playback(sid)
             if msg is None:
@@ -60,6 +68,20 @@ async def ws_live(websocket: WebSocket, session_id: str = "default") -> None:
                 continue
 
             payload = msg.model_dump(mode="json", by_alias=True)
+            # TRUSTBATTLE LIVE: piggyback status frames (pipeline panel +
+            # event log) so the dashboard reflects real controller state.
+            if scenario == "live":
+                _live_frames[websocket] = _live_frames.get(websocket, 0) + 1
+                if _live_frames[websocket] % 5 == 0:
+                    try:
+                        from backend.app.services.live_demo import get_live_controller
+                        status = get_live_controller().status()
+                        status["auto_running"] = getattr(
+                            get_live_controller(), "auto_running", False)
+                        await websocket.send_text(
+                            json.dumps({"type": "live_status", "status": status}))
+                    except Exception:
+                        pass
             try:
                 db = SessionLocal()
                 try:
@@ -81,3 +103,4 @@ async def ws_live(websocket: WebSocket, session_id: str = "default") -> None:
         pass
     finally:
         _active_connections.discard(websocket)
+        _live_frames.pop(websocket, None)

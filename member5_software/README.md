@@ -72,4 +72,5 @@ Read + call into: `integration/interfaces.py`, `integration/pipeline.py` (never 
 ## Remaining work (low priority)
 
 - ~~M5-specific evaluation report `docs/reports/m5_evaluation.md`~~ → **DONE 2026-10-06**: REST latency (200 req/endpoint under load), 30-min WS soak (8015 frames / 0 errors), backend RSS + browser JS-heap/DOM memory; tooling in `member5_software/eval/`. Backlog: full 1 h browser soak, browser process-level memory, `trust/history` pagination.
+- ~~TRUSTBATTLE LIVE judge demo~~ → **DONE 2026-10-09**: `backend/app/services/live_demo.py` controlled live simulation (input-only, seed 42) → REST `/api/v1/live/*` → `/ws/live` live frames + status frames → `frontend/src/components/LiveControl.jsx` panel (status, pipeline, event log, ▶ RUN LIVE DEMO) + map label + "TRUST REDUCED BECAUSE" explainability block; `scripts/run_live_demo.py` terminal driver. Trust always computed by M1→M2→M3 (13 new tests in `tests/test_live_demo.py`, root suite 188 passed).
 - Auth / RBAC for deployment (not MVP scope).

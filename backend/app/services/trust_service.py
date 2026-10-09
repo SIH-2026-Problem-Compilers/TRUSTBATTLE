@@ -70,6 +70,11 @@ class PlaybackSession(BaseModel):
 
 
 class TrustServiceABC(ABC):
+    # TRUSTBATTLE LIVE stream state (class-level defaults so every subclass
+    # can be told about live-mode epochs regardless of its own __init__)
+    _live_active: bool = False
+    _live_seen_epoch: int = -1
+
     @abstractmethod
     def get_current_trust(self) -> TrustMessage: ...
 
@@ -362,6 +367,17 @@ class MockTrustService(TrustServiceABC):
         """(scenario, epoch) the /ws/live stream should play."""
         return self._ws_scenario, self._ws_epoch
 
+    # ------------------------------------------------------------------
+    # TRUSTBATTLE LIVE (controlled live simulation)
+    # ------------------------------------------------------------------
+    def notify_live_epoch(self) -> None:
+        """Tell /ws/live that the live controller state changed (scenario,
+        reset or auto-demo start). The connected client reopens its stream
+        and follows the LIVE controller instead of scenario playback."""
+        self._live_active = True
+        self._ws_scenario = "live"
+        self._ws_epoch += 1
+
     def start_ws_session(self, scenario: str) -> Dict[str, Any]:
         """Open a playback session for /ws/live without bumping the epoch."""
         return self._open_session(scenario)
@@ -409,6 +425,9 @@ class RealTrustService(TrustServiceABC):
         self._ws_epoch: int = 0
         self._default_sid: Optional[str] = None
         self._lock = threading.Lock()
+        # TRUSTBATTLE LIVE: when active, /ws/live streams the live controller
+        self._live_active: bool = False
+        self._live_seen_epoch: int = -1
 
     def _try_init_pipeline(self) -> bool:
         try:
@@ -803,6 +822,17 @@ class RealTrustService(TrustServiceABC):
         """(scenario, epoch) the /ws/live stream should play."""
         return self._ws_scenario, self._ws_epoch
 
+    # ------------------------------------------------------------------
+    # TRUSTBATTLE LIVE (controlled live simulation)
+    # ------------------------------------------------------------------
+    def notify_live_epoch(self) -> None:
+        """Tell /ws/live that the live controller state changed (scenario,
+        reset or auto-demo start). The connected client reopens its stream
+        and follows the LIVE controller instead of scenario playback."""
+        self._live_active = True
+        self._ws_scenario = "live"
+        self._ws_epoch += 1
+
     def start_ws_session(self, scenario: str) -> Dict[str, Any]:
         """Open a playback session for /ws/live without bumping the epoch."""
         try:
@@ -829,6 +859,20 @@ class RealTrustService(TrustServiceABC):
         return self._playbacks.get(session_id) or self._mock.get_playback(session_id)
 
     def advance_playback(self, session_id: str) -> Optional[TrustMessage]:
+        if session_id == "live":
+            # TRUSTBATTLE LIVE: one window of controlled input through the
+            # REAL M1 -> M2 -> M3 pipeline. Never serves fabricated scores;
+            # if the pipeline is unavailable this returns None (the /ws/live
+            # loop treats it as end-of-stream and keeps the socket healthy).
+            if not self._ready:
+                return None
+            try:
+                from backend.app.services.live_demo import get_live_controller
+                with self._lock:
+                    return get_live_controller().step()
+            except Exception as exc:
+                _warn_once("live_step", f"live step failed: {exc}")
+                return None
         if session_id in self._pipeline_sessions:
             try:
                 with self._lock:

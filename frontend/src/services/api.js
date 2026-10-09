@@ -35,6 +35,14 @@ export const api = {
   ingestReal: (rows) => _post('/real/ingest', { rows }),
   getRealTrajectory: () => _get('/real/trajectory'),
   listRealDatasets: () => _get('/real/datasets'),
+
+  // ---- TRUSTBATTLE LIVE (controlled live simulation) ----
+  liveStatus: () => _get('/live/status'),
+  liveScenario: (scenario) => _post(`/live/scenario/${encodeURIComponent(scenario)}`),
+  liveAuto: () => _post('/live/auto'),
+  liveStep: () => _post('/live/step'),
+  liveEvents: (limit = 100) => _get(`/live/events?limit=${limit}`),
+  liveTrajectory: () => _get('/live/trajectory'),
 };
 
 /**

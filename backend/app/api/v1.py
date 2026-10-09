@@ -179,3 +179,68 @@ def get_real_trajectory() -> TrajectoryResponse:
 def list_real_datasets() -> dict:
     from backend.app.services.real_data import list_real_datasets as _list
     return {"datasets": _list(), "dir": "data/real"}
+
+
+# ---------------------------------------------------------------------------
+# TRUSTBATTLE LIVE — controlled live simulation (spec §2–§8, §12, §14)
+# ---------------------------------------------------------------------------
+@router.get("/live/status")
+def live_status() -> dict:
+    """Status panel + pipeline panel + event log state for the LIVE screen."""
+    from backend.app.services.live_demo import get_live_controller
+    return get_live_controller().status()
+
+
+@router.post("/live/scenario/{scenario}", status_code=status.HTTP_202_ACCEPTED)
+def live_set_scenario(scenario: str) -> dict:
+    """Set the controlled INPUT scenario (NORMAL / GNSS SPOOF / REPLAY / ...
+    / RESET). Only the input data changes — trust is computed by M1→M2→M3."""
+    from backend.app.services.live_demo import get_live_controller, SCENARIOS
+    ctl = get_live_controller()
+    if scenario == "reset":
+        out = ctl.reset()
+    else:
+        if scenario not in SCENARIOS:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Unknown live scenario '{scenario}'. Valid: "
+                       f"{sorted(SCENARIOS | {'reset'})}")
+        out = ctl.set_scenario(scenario)
+    ctl.epoch  # expose via ws_stream_state through the trust service
+    from backend.app.services import trust_service as ts
+    svc = ts.get_trust_service()
+    if hasattr(svc, "notify_live_epoch"):
+        svc.notify_live_epoch()
+    return out
+
+
+@router.post("/live/auto", status_code=status.HTTP_202_ACCEPTED)
+def live_auto() -> dict:
+    """▶ RUN LIVE DEMO — automatic NORMAL → GNSS SPOOF → RECOVERY sequence.
+    Drives input data only; every trust value is computed by the pipeline."""
+    from backend.app.services.live_demo import get_live_controller
+    out = get_live_controller().run_auto()
+    from backend.app.services import trust_service as ts
+    svc = ts.get_trust_service()
+    if hasattr(svc, "notify_live_epoch"):
+        svc.notify_live_epoch()
+    return out
+
+
+@router.post("/live/step", response_model=TrustMessage)
+def live_step() -> TrustMessage:
+    """Generate + score one window now (run_live_demo.py / polling clients)."""
+    from backend.app.services.live_demo import get_live_controller
+    return get_live_controller().step()
+
+
+@router.get("/live/events")
+def live_events(limit: int = Query(100, ge=1, le=500)) -> dict:
+    from backend.app.services.live_demo import get_live_controller
+    return {"events": get_live_controller().events(limit)}
+
+
+@router.get("/live/trajectory")
+def live_trajectory() -> dict:
+    from backend.app.services.live_demo import get_live_controller
+    return get_live_controller().trajectory()

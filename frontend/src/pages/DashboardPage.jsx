@@ -7,7 +7,8 @@ import TrustChart from '../components/TrustChart.jsx';
 import SensorWeightsChart from '../components/SensorWeightsChart.jsx';
 import MapView from '../components/MapView.jsx';
 import ScenarioControl from '../components/ScenarioControl.jsx';
-import { api, openLiveSocket } from '../services/api.js';
+import LiveControl from '../components/LiveControl.jsx';
+import { api, openLiveSocket, trustLevelFromValue } from '../services/api.js';
 
 const REAL_GPS = 'real_gps';
 const REAL_GEO = 'real_geolife';
@@ -51,6 +52,8 @@ export default function DashboardPage() {
   const [activeScenario, setActiveScenario] = useState('gnss_spoof');
   const [wsConnected, setWsConnected] = useState(false);
   const [realStatus, setRealStatus] = useState(null); // string message for real modes
+  const [liveStatus, setLiveStatus] = useState(null);
+  const [autoRunning, setAutoRunning] = useState(false);
   const historyRef = useRef([]);
 
   // mode: 'scenario' (synthetic WS playback) | 'real_gps' | 'real_geolife'
@@ -103,11 +106,54 @@ export default function DashboardPage() {
     return () => { mounted = false; };
   }, []);
 
-  // --------------------------------------------------------------- WS (synthetic only)
+  // --------------------------------------------------------------- TRUSTBATTLE LIVE
+  const enterLiveMode = () => {
+    if (modeRef.current !== 'live') {
+      stopRealModes();
+      modeRef.current = 'live';
+      setRealStatus(null);
+      reportedRef.current = [];
+      fusedRef.current = [];
+      historyRef.current = [];
+      setHistory([]);
+      setTrajectory(null);
+      setActiveScenario(null);
+    }
+  };
+
+  const handleLiveScenario = async (scenario) => {
+    enterLiveMode();
+    try {
+      await api.liveScenario(scenario);
+      // one step so the panel reacts immediately (WS picks the rest up)
+      try { api.liveStep(); } catch { /* WS will drive it */ }
+    } catch (e) {
+      console.warn('live scenario failed:', e);
+    }
+  };
+
+  const handleLiveAuto = async () => {
+    enterLiveMode();
+    setAutoRunning(true);
+    try {
+      await api.liveAuto();
+    } catch (e) {
+      console.warn('live auto failed:', e);
+      setAutoRunning(false);
+    }
+  };
+
+  // --------------------------------------------------------------- WS (synthetic + live)
   useEffect(() => {
     const sock = openLiveSocket(
       (msg) => {
-        if (modeRef.current !== 'scenario') return; // real modes drive their own stream
+        if (msg.type === 'live_status') {
+          // TRUSTBATTLE LIVE status frame (pipeline panel + event log)
+          setLiveStatus(msg.status);
+          setAutoRunning(!!msg.status?.auto_running);
+          return;
+        }
+        if (modeRef.current === 'real_gps' || modeRef.current === 'real_geolife') return;
         applyMessage(msg);
       },
       (open, err) => {
@@ -310,8 +356,20 @@ export default function DashboardPage() {
     }, 700);
   };
 
+  // Leave live mode when a scenario/real button is chosen
+  const exitLiveMode = () => {
+    if (modeRef.current === 'live') {
+      modeRef.current = 'scenario';
+      setLiveStatus(null);
+      setAutoRunning(false);
+      historyRef.current = [];
+      setHistory([]);
+    }
+  };
+
   // --------------------------------------------------------------- scenario selection
   const handleSelectScenario = async (key) => {
+    exitLiveMode();
     const wasReal = modeRef.current !== 'scenario';
     if (wasReal) {
       stopRealModes();
@@ -345,9 +403,24 @@ export default function DashboardPage() {
   useEffect(() => () => stopRealModes(), []);
 
   const isReal = modeRef.current !== 'scenario';
+  const isLive = modeRef.current === 'live';
+  const mapLabel = isLive ? 'Simulated UAV Track — Controlled Live Simulation'
+    : isReal ? 'Live Device GPS'
+    : 'Simulated UAV Track — Controlled Simulation';
+  const mapLabelColor = isReal ? '#22d3ee' : '#f59e0b';
+  const obsTrust = current?.trust?.observation_trust;
+  const level = trustLevelFromValue(obsTrust);
+  const failing = (current?.evidence || []).filter((e) => e.pass === false || e.pass === 0);
 
   return (
     <>
+      <LiveControl
+        status={liveStatus}
+        autoRunning={autoRunning}
+        onScenario={handleLiveScenario}
+        onAuto={handleLiveAuto}
+      />
+
       <ScenarioControl
         active={activeScenario}
         onSelect={handleSelectScenario}
@@ -388,8 +461,9 @@ export default function DashboardPage() {
       <div className="card" style={{ gridColumn: 'span 1' }}>
         <div className="card-title">
           <span>Position Estimate</span>
-          <span style={{ textTransform: 'none', fontWeight: 500, color: 'var(--text-dim)' }}>
-            {trajectory?.scenario || 'scenario'}
+          <span style={{ textTransform: 'none', fontWeight: 600, fontSize: 11.5,
+                         color: mapLabelColor }}>
+            {mapLabel}
           </span>
         </div>
         <MapView trajectory={trajectory} currentState={current?.trust} />
@@ -399,6 +473,30 @@ export default function DashboardPage() {
         <div className="card-title">
           <span>Evidence Checklist</span>
         </div>
+        {level !== 'GREEN' && failing.length > 0 && (
+          <div style={{
+            margin: '0 0 10px', padding: '10px 12px', borderRadius: 8,
+            background: 'rgba(239,68,68,0.12)', border: '1px solid rgba(239,68,68,0.5)',
+          }}>
+            <div style={{ fontWeight: 800, color: '#ef4444', fontSize: 13, marginBottom: 6 }}>
+              TRUST REDUCED BECAUSE:
+            </div>
+            <ol style={{ margin: 0, paddingLeft: 20, fontSize: 12.5, lineHeight: 1.6 }}>
+              {failing.slice(0, 5).map((e, i) => (
+                <li key={i}>
+                  {e.check}
+                  {e.detail ? ` — ${e.detail}` : ''}
+                </li>
+              ))}
+            </ol>
+            {current?.alert?.recommended_action && (
+              <div style={{ marginTop: 8, fontSize: 12.5, color: '#f59e0b' }}>
+                <strong>RECOMMENDED ACTION: </strong>
+                {current.alert.recommended_action}
+              </div>
+            )}
+          </div>
+        )}
         <EvidencePanel evidence={current?.evidence} alert={current?.alert} />
       </div>
 
