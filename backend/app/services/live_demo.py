@@ -111,6 +111,8 @@ class LiveDemoController:
         self._row: int = 0                  # absolute row cursor into the track
         self._epoch: int = 0                # bumped on every reset/scenario switch
         self._events: List[Dict[str, Any]] = []
+        self._auto_stop = threading.Event()   # set => auto sequence terminates
+        self._auto_thread: Optional[threading.Thread] = None
         self._observations: List[Dict[str, Any]] = []   # last window's rows
         # running state for the track generator + input corruption
         self._rng = np.random.default_rng(DEMO_SEED)
@@ -205,7 +207,16 @@ class LiveDemoController:
             return {"scenario": self._scenario, "epoch": self._epoch}
 
     def reset(self) -> Dict[str, Any]:
-        """RESET: fresh track, fresh M3 history, same seed — replayable demo."""
+        """RESET: fresh track, fresh M3 history, same seed — replayable demo.
+
+        Also CANCELS a running auto sequence and waits for its thread to
+        finish before wiping state, so no stray step can land after the
+        reset (deterministic — verified by the reset-determinism test).
+        """
+        self._auto_stop.set()
+        t = getattr(self, "_auto_thread", None)
+        if t is not None and t.is_alive() and t is not threading.current_thread():
+            t.join(timeout=5.0)
         with self._lock:
             self._epoch += 1
             self._reset_track_locked()
@@ -213,6 +224,12 @@ class LiveDemoController:
             return {"scenario": self._scenario, "epoch": self._epoch}
 
     def _reset_track_locked(self) -> None:
+        # Full reset: the row cursor MUST return to 0 together with the RNG,
+        # otherwise timestamps / observation ids / sensor_observations seeds
+        # (DEMO_SEED + _row) keep advancing and the same demo would produce
+        # different values depending on what ran earlier — breaking both
+        # reproducibility (fixed seed) and order-independent tests.
+        self._row = 0
         self._rng = np.random.default_rng(DEMO_SEED)
         self._vE, self._vN = 6.0, 0.0
         self._east = self._north = 0.0
@@ -293,9 +310,8 @@ class LiveDemoController:
                 # copy of the row ~12 s (121 ticks) earlier — old timestamps,
                 # old sequence numbers, stale nav state.
                 delay_ticks = 121
-                src = max(0, self._row - delay_ticks)
-                if self._row % 2 == 1 and src != self._row:
-                    old = self._history_row(src)
+                if self._row % 2 == 1:
+                    old = self._history_row(delay_ticks)
                     if old is not None:
                         for c in ("timestamp", "latitude", "longitude", "altitude",
                                   "velocity", "vx", "vy", "vz", "heading",
@@ -336,10 +352,20 @@ class LiveDemoController:
             self._history = self._history[-4000:]
         return rows
 
-    def _history_row(self, src: int) -> Optional[Dict[str, Any]]:
+    def _history_row(self, ticks_ago: int) -> Optional[Dict[str, Any]]:
+        """Row generated ``ticks_ago`` observations before the most recent one.
+
+        ``self._history`` holds the last ≤4000 generated rows (its tail is the
+        newest), so the copy source is addressed by AGE, not by absolute row
+        number — absolute indices broke replay after any RESET (history empties
+        while the cursor used to keep counting) and past the 4000-row cap.
+        Returns None when the requested age is not in the buffer (start of a
+        fresh track): the row stays clean, matching M4's early-window
+        behaviour before the delay window exists.
+        """
         h = getattr(self, "_history", [])
-        if 0 <= src < len(h):
-            return h[src]
+        if ticks_ago > 0 and len(h) >= ticks_ago:
+            return h[-ticks_ago]
         return None
 
     # ------------------------------------------------------------------ #
@@ -490,6 +516,15 @@ class LiveDemoController:
                  "label": "PHASE 3 — RECOVERY (attack stopped)"},
                 {"scenario": "normal", "seconds": 5.0, "label": "PHASE 4 — HOLD NORMAL"},
             ]
+        # stop any previous runner FIRST (join) and only then clear the
+        # stop flag — otherwise the new thread could clear it before the old
+        # one observes it and both would step concurrently.
+        self._auto_stop.set()
+        old = getattr(self, "_auto_thread", None)
+        if old is not None and old.is_alive() and old is not threading.current_thread():
+            old.join(timeout=5.0)
+        self._auto_stop.clear()
+
         with self._lock:
             self._epoch += 1
             self._reset_track_locked()
@@ -500,24 +535,29 @@ class LiveDemoController:
             self._auto_running = True
             try:
                 for ph in phases:
+                    if self._auto_stop.is_set():
+                        return
                     try:
                         self.set_scenario(ph["scenario"])
                     except ValueError:
                         return
                     self._log(ph["label"])
                     deadline = time.time() + float(ph["seconds"])
-                    while time.time() < deadline:
+                    while time.time() < deadline and not self._auto_stop.is_set():
                         try:
                             self.step()
                         except Exception as exc:
                             print(f"[live_demo] auto step failed: {exc}", file=sys.stderr)
                             return
                         time.sleep(0.5)   # ~2 windows/s — visible but not overwhelming
-                self._log("AUTO DEMO COMPLETE — system NORMAL")
+                if not self._auto_stop.is_set():
+                    self._log("AUTO DEMO COMPLETE — system NORMAL")
             finally:
                 self._auto_running = False
 
-        threading.Thread(target=_runner, daemon=True, name="live-demo-auto").start()
+        th = threading.Thread(target=_runner, daemon=True, name="live-demo-auto")
+        self._auto_thread = th
+        th.start()
         return {"started": True, "phases": len(phases)}
 
 

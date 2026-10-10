@@ -139,3 +139,33 @@ class TestNoHardcodedTrust:
         vals = [_step(client)["trust"]["observation_trust"] for _ in range(8)]
         # real scored data varies; a hardcoded constant would be identical
         assert len(set(vals)) > 1 or abs(vals[0] - 92.0) > 1.0
+
+
+class TestResetDeterminismAndReplay:
+    """Regression tests (2026-10-09): reset() must fully restore the seeded
+    state, and REPLAY must still find stale rows AFTER a reset."""
+
+    @staticmethod
+    def _trust_sequence(client, n=3):
+        client.post("/api/v1/live/scenario/reset")
+        return [client.post("/api/v1/live/step").json()["trust"]["observation_trust"]
+                for _ in range(n)]
+
+    def test_reset_reproduces_identical_trust_sequence(self, client):
+        first = self._trust_sequence(client)
+        second = self._trust_sequence(client)   # identical inputs -> identical M3 output
+        assert first == second, (
+            f"reset is not restoring a deterministic state: {first} vs {second}")
+
+    def test_replay_re_delivers_stale_rows_after_reset(self, client):
+        client.post("/api/v1/live/scenario/reset")
+        for _ in range(3):                       # prime >121 rows of history
+            client.post("/api/v1/live/step")
+        client.post("/api/v1/live/scenario/replay")
+
+        from backend.app.services.live_demo import get_live_controller
+        rows = get_live_controller()._next_rows(20)
+        seqs = [int(r["sequence_number"]) for r in rows]
+        # stale copies carry OLD sequence numbers -> the stream must jump back
+        assert any(seqs[i] < seqs[i - 1] for i in range(1, len(seqs))), (
+            "replay scenario delivered no stale (re-broadcast) rows")

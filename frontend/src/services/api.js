@@ -44,6 +44,9 @@ export const api = {
   liveStep: () => _post('/live/step'),
   liveEvents: (limit = 100) => _get(`/live/events?limit=${limit}`),
   liveTrajectory: () => _get('/live/trajectory'),
+
+  // ---- pipeline source diagnostic (additive) ----
+  pipelineStatus: () => _get('/pipeline/status'),
 };
 
 /**

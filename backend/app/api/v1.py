@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import sys
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, ConfigDict
 from sqlalchemy.orm import Session
@@ -23,6 +24,97 @@ from backend.app.models.schemas import (
 from backend.app.services.trust_service import TrustServiceABC, get_trust_service
 
 router = APIRouter(prefix="/api/v1", tags=["v1"])
+
+
+# ---------------------------------------------------------------------------
+# Pipeline source diagnostic (competition-readiness, additive only)
+# ---------------------------------------------------------------------------
+
+def _pipeline_self_check() -> dict:
+    """ACTUALLY run each stage once on a throwaway schema-valid window.
+
+    Flags like HTTP 200 or a green UI do not prove M1/M2/M3 loaded — this
+    executes the real adapters (integration.interfaces) and reports which
+    stages produced their contract outputs. Any stage that raises
+    ModuleNotReadyError / ImportError is reported as failed with the reason.
+    """
+    out: dict = {}
+    window = prior = None
+    try:
+        from member3_trust.src.eval_scenarios import make_clean_track
+        df = make_clean_track(n=160)          # schema-§1 rows, seed fixed
+        window = df.iloc[80:130].reset_index(drop=True)
+        prior = df.iloc[30:80].reset_index(drop=True)
+    except Exception as exc:
+        return {"ok": False, "stages": {}, "error": f"window build failed: {type(exc).__name__}: {exc}"}
+
+    scores: dict = {}
+    try:
+        from integration import interfaces
+        from integration.pipeline import score_window
+        res = score_window(window, prior_rows=prior)
+        scores = res.get("scores", {})
+        out["m1_physical"] = "physical_consistency" in scores
+        out["m2_temporal"] = "temporal_consistency" in scores and "network_integrity" in scores
+        if res.get("physical_status") or res.get("temporal_status"):
+            out["stage_status"] = {k: v for k, v in res.items() if k.endswith("_status")}
+    except Exception as exc:
+        out["m1_physical"] = out["m2_temporal"] = False
+        out["error"] = f"scoring failed: {type(exc).__name__}: {exc}"
+        return {"ok": False, "stages": out}
+
+    try:
+        from integration import interfaces
+        trust_out = interfaces.compute_trust(scores, history=[])
+        st = (trust_out.get("trust") or {}).get("sensor_trust") or {}
+        out["m3_trust"] = bool(st) and 0 <= float(
+            (trust_out.get("trust") or {}).get("observation_trust", -1)) <= 100
+        obs = {
+            "gnss": {"sensor_id": "gnss", "lat": 28.61, "lon": 77.21, "velocity": 6.0},
+            "imu": {"sensor_id": "imu", "lat": 28.61, "lon": 77.21, "velocity": 6.0},
+            "visual": {"sensor_id": "visual", "lat": 28.61, "lon": 77.21, "velocity": 6.0},
+        }
+        est = interfaces.fuse(obs, trust_out)
+        out["fusion"] = isinstance(est.get("lat"), float) and isinstance(est.get("lon"), float)
+        out["trust_value"] = float((trust_out.get("trust") or {}).get("observation_trust", -1))
+    except Exception as exc:
+        out["m3_trust"] = out["fusion"] = False
+        out["error"] = f"trust/fusion failed: {type(exc).__name__}: {exc}"
+
+    out["ok"] = all(out.get(k) for k in ("m1_physical", "m2_temporal", "m3_trust", "fusion"))
+    return {"stages": out}
+
+
+@router.get("/pipeline/status", tags=["meta"])
+def pipeline_status() -> dict:
+    """Is the ACTIVE runtime serving real M1→M2→M3 output or the mock story?
+
+    Additive diagnostic — no existing response format or contract changes.
+    ``self_check`` runs every stage for real; ``source`` reflects the service
+    actually bound to /api/v1 and /ws/live."""
+    from integration import interfaces as _if
+    svc = get_trust_service()
+    ready = bool(getattr(svc, "_ready", False))
+    service_name = type(svc).__name__
+    source = "pipeline" if ready else "mock"
+    missing = sorted(getattr(_if, "MISSING", []))
+    try:
+        registered = sorted(getattr(_if, "_REGISTRY", {}).keys())
+    except Exception:
+        registered = []
+    check = _pipeline_self_check()
+    # self_check is ground truth: if stages fail while ready=True, treat as mock
+    if source == "pipeline" and not check.get("stages", {}).get("ok", False):
+        source = "mock"
+    return {
+        "source": source,
+        "service": service_name,
+        "ready": ready,
+        "missing_modules": missing,
+        "registered_adapters": registered,
+        "self_check": check,
+        "python_executable": sys.executable,
+    }
 
 
 @router.get("/health", tags=["meta"])

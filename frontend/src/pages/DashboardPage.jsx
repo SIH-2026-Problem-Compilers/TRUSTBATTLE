@@ -64,6 +64,7 @@ export default function DashboardPage() {
   });
   const [simMsg, setSimMsg] = useState(null);
   const [realEvents, setRealEvents] = useState([]);
+  const [pipelineInfo, setPipelineInfo] = useState(null); // GET /api/v1/pipeline/status
   const historyRef = useRef([]);
   const realMsgRef = useRef(null);
 
@@ -133,6 +134,15 @@ export default function DashboardPage() {
         console.warn('initial fetch failed:', e);
       }
     })();
+    return () => { mounted = false; };
+  }, []);
+
+  // -------------------------------------------------- pipeline source diagnostic
+  useEffect(() => {
+    let mounted = true;
+    api.pipelineStatus()
+      .then((s) => { if (mounted) setPipelineInfo(s); })
+      .catch(() => { /* diagnostic unavailable — banner simply not shown */ });
     return () => { mounted = false; };
   }, []);
 
@@ -483,8 +493,32 @@ export default function DashboardPage() {
   const level = trustLevelFromValue(obsTrust);
   const failing = (current?.evidence || []).filter((e) => e.pass === false || e.pass === 0);
 
+  const pipeSource = pipelineInfo?.source;
+  const selfOk = !!pipelineInfo?.self_check?.stages?.ok;
+
   return (
     <>
+      {pipeSource === 'mock' && (
+        <div style={{
+          margin: '0 0 10px', padding: '10px 14px', borderRadius: 8,
+          background: 'rgba(239,68,68,0.18)', border: '2px solid #ef4444',
+          color: '#fca5a5', fontWeight: 700, fontSize: 13,
+        }}>
+          ⚠ MOCK MODE — this backend is NOT running M1 → M2 → M3 right now. The values
+          below come from the clearly-labelled mock story and must not be presented as
+          pipeline output. Missing modules: {(pipelineInfo?.missing_modules || []).join(', ') || 'unknown'}
+        </div>
+      )}
+      {pipeSource === 'pipeline' && selfOk && (
+        <div style={{
+          margin: '0 0 8px', padding: '5px 12px', borderRadius: 8,
+          background: 'rgba(16,185,129,0.10)', border: '1px solid rgba(16,185,129,0.5)',
+          color: '#10b981', fontSize: 11.5, fontWeight: 600,
+        }}>
+          ✓ REAL PIPELINE verified — M1 physical ✓ · M2 temporal/network ✓ · M3 trust ✓ · fusion ✓
+          (live self-check, {String(pipelineInfo?.python_executable || '').split(/[\\/]/).slice(-3).join('/')})
+        </div>
+      )}
       <LiveControl
         status={liveStatus}
         autoRunning={autoRunning}
